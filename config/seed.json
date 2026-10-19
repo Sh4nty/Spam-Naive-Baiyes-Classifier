@@ -1,0 +1,9 @@
+{
+  "seed": 42,
+  "train_fraction": 0.7,
+  "test_fraction": 0.3,
+  "smoothing_alpha": 1.0,
+  "tokenizer": "lowercase_regex",
+  "split_strategy": "temporal",
+  "positive_label": 1
+}
