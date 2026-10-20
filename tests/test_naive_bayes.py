@@ -76,8 +76,14 @@ def test_multinomial_counts_repeated_words(training_data):
     meeting_idx = model.vocabulary_["meeting"]
 
     # Both ham emails contain "meeting", so the total is two.
+    # The ham class has 6 tokens in total (3 + 3), which is the
+    # denominator before smoothing: (T_ct + 1) / (sum_t' T_ct' + |V|).
+    ham_tokens = sum(
+        len(doc.split()) for doc, y in zip(documents, labels) if y == 0
+    )
+    assert ham_tokens == 6
     assert model.feature_log_prob_[0, meeting_idx] == pytest.approx(
-        np.log((2 + 1) / (5 + len(model.vocabulary_)))
+        np.log((2 + 1) / (ham_tokens + len(model.vocabulary_)))
     )
 
 
