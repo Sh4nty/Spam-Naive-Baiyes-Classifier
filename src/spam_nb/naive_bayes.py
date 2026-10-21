@@ -1,31 +1,102 @@
+"""Multinomial and Bernoulli Naive Bayes [IIR sections 13.2-13.3], NumPy only.
+
+Documents are encoded once into flat arrays of (document index, term id)
+pairs; class counts come from np.bincount and scores from a weighted
+bincount over the same pairs, so nothing loops over tokens in Python
+except the regex tokenizer itself.
+
+Both models share one scoring form. For class c:
+
+    log P(c, d) = base_[c] + sum over pairs (d, t) of value * term_[c, t]
+
+Multinomial: one pair per token occurrence, base_ = log prior,
+             term_ = log P(t|c).
+Bernoulli:   one pair per distinct present term, base_ = log prior +
+             sum_t log(1 - P(t|c)), term_ = log P(t|c) - log(1 - P(t|c)).
+
+Spam (label 1) is the positive class. margin(d) = S(d) =
+log P(spam, d) - log P(ham, d) = bias_ + sum value * weights_[t].
+"""
+
+from __future__ import annotations
 
 from collections import Counter
+from itertools import chain
 from typing import Iterable
 
 import numpy as np
+import pandas as pd
 
+from spam_nb.features import score_terms, select_top_k
 from spam_nb.tokenizer import tokenize
 
 
 class BaseNaiveBayes:
     """Shared binary text-classification functionality."""
 
-    def __init__(self, alpha: float = 1.0):
+    def __init__(
+        self,
+        alpha: float = 1.0,
+        selector: str | None = None,
+        k: int | None = None,
+    ):
         if alpha <= 0:
             raise ValueError("alpha must be positive.")
+        if (selector is None) != (k is None):
+            raise ValueError("Give both selector and k, or neither.")
 
         self.alpha = float(alpha)
+        self.selector = selector
+        self.k = k
         self.classes_ = np.array([0, 1])
         self.vocabulary_: dict[str, int] = {}
         self.log_prior_: np.ndarray | None = None
         self.is_fitted_ = False
 
-    def _tokenize_documents(
-        self, documents: Iterable[str]
-    ) -> list[list[str]]:
-        return [tokenize(doc) for doc in documents]
+    # ------------------------------------------------------------------
+    # Encoding
+    # ------------------------------------------------------------------
 
-    def _fit_common(self, documents, labels):
+    @staticmethod
+    def _tokenize_all(documents) -> tuple[list[str], np.ndarray]:
+        """Flat token list and the document index of each token."""
+        token_lists = [tokenize(doc) for doc in documents]
+        lengths = np.fromiter((len(t) for t in token_lists), dtype=np.int64,
+                              count=len(token_lists))
+        flat = list(chain.from_iterable(token_lists))
+        doc_idx = np.repeat(np.arange(len(token_lists), dtype=np.int64), lengths)
+        return flat, doc_idx
+
+    def _encode(self, documents) -> tuple[np.ndarray, np.ndarray, int]:
+        """(document index, term id) for every in-vocabulary token."""
+        docs = list(documents)
+        flat, doc_idx = self._tokenize_all(docs)
+        if flat:
+            ids = self._index_.get_indexer(np.array(flat, dtype=object)).astype(np.int64)
+        else:
+            ids = np.empty(0, dtype=np.int64)
+        keep = ids >= 0  # out-of-vocabulary tokens are dropped
+        return doc_idx[keep], ids[keep], len(docs)
+
+    @staticmethod
+    def _unique_pairs(doc_idx, ids, n_terms):
+        """Distinct (document, term) pairs."""
+        if doc_idx.size == 0:
+            return doc_idx, ids
+        # Hash-based de-duplication; order is irrelevant for bincount and is
+        # ~8x faster than sorting with np.unique on millions of pairs.
+        keys = pd.unique(doc_idx * n_terms + ids)
+        return keys // n_terms, keys % n_terms
+
+    def _design(self, documents):
+        """(document index, term id, value) triples; see module docstring."""
+        raise NotImplementedError
+
+    # ------------------------------------------------------------------
+    # Fitting
+    # ------------------------------------------------------------------
+
+    def fit(self, documents, labels):
         docs = list(documents)
         y = np.asarray(list(labels), dtype=int)
 
@@ -38,68 +109,95 @@ class BaseNaiveBayes:
         if not np.isin(y, [0, 1]).all():
             raise ValueError("Labels must be 0 (ham) or 1 (spam).")
 
-        self.classes_ = np.array([0, 1])
-        self.n_features_seen_ = len(docs)
-
-        tokenized = self._tokenize_documents(docs)
-        vocab = sorted({token for doc in tokenized for token in doc})
-        self.vocabulary_ = {word: i for i, word in enumerate(vocab)}
-
-        class_counts = np.array([(y == c).sum() for c in self.classes_])
-
+        class_counts = np.bincount(y, minlength=2)
         if np.any(class_counts == 0):
             raise ValueError("Training data must contain both classes.")
 
-        self.log_prior_ = np.log(class_counts / len(y))
-        self.is_fitted_ = True
+        flat, doc_idx = self._tokenize_all(docs)
+        if not flat:
+            raise ValueError("Training vocabulary is empty.")
 
-        return tokenized, y
+        # Sorted vocabulary, as in the original implementation.
+        codes, uniques = pd.factorize(np.array(flat, dtype=object), sort=True)
+        codes = codes.astype(np.int64)
+        vocab = np.asarray(uniques, dtype=object)
+
+        doc_freq = self._doc_freq(doc_idx, codes, y, len(vocab))
+
+        if self.selector is not None:
+            self.term_scores_ = score_terms(self.selector, doc_freq, class_counts)
+            keep = select_top_k(self.term_scores_, min(self.k, len(vocab)))
+            remap = np.full(len(vocab), -1, dtype=np.int64)
+            remap[keep] = np.arange(len(keep))
+            codes = remap[codes]
+            mask = codes >= 0
+            codes, doc_idx = codes[mask], doc_idx[mask]
+            vocab = vocab[keep]
+            doc_freq = doc_freq[:, keep]
+
+        self.n_features_seen_ = len(docs)
+        self.vocabulary_ = {word: i for i, word in enumerate(vocab)}
+        self._index_ = pd.Index(vocab, dtype=object)
+        self.feature_names_ = vocab
+        self.class_count_ = class_counts
+        self.doc_freq_ = doc_freq
+        self.log_prior_ = np.log(class_counts / len(y))
+
+        self._estimate(doc_idx, codes, y, len(vocab))
+
+        self.bias_ = float(self._base_[1] - self._base_[0])
+        self.weights_ = self._term_[1] - self._term_[0]
+        self.is_fitted_ = True
+        return self
+
+    @classmethod
+    def _doc_freq(cls, doc_idx, codes, y, n_terms):
+        """(2, V): number of ham / spam documents containing each term."""
+        d, t = cls._unique_pairs(doc_idx, codes, n_terms)
+        return np.bincount(y[d] * n_terms + t, minlength=2 * n_terms).reshape(
+            2, n_terms
+        ).astype(np.float64)
+
+    def _estimate(self, doc_idx, codes, y, n_terms):
+        raise NotImplementedError
+
+    # ------------------------------------------------------------------
+    # Scoring
+    # ------------------------------------------------------------------
 
     def _check_fitted(self):
         if not self.is_fitted_:
             raise RuntimeError("Call fit() before prediction.")
 
-    # ------------------------------------------------------------------
-    # Linear form (spam is the positive class)
-    #
-    # Both NB variants are linear in log space:
-    #   S(d) = log P(spam, d) - log P(ham, d) = bias_ + sum_t x_t * weights_[t]
-    # where x_t is the term count (multinomial) or a 0/1 presence
-    # indicator (Bernoulli). A document is spam exactly when S(d) > 0.
-    # Attacks (A2-A4) and defences (D2-D4) work on this form.
-    # ------------------------------------------------------------------
-
-    def _features(self, document: str) -> Counter:
-        """Map a document to {vocab index: x_t}. Overridden per variant."""
-        raise NotImplementedError
-
-    def _set_linear_form(self, bias: float, weights: np.ndarray) -> None:
-        self.bias_ = float(bias)
-        self.weights_ = np.asarray(weights, dtype=np.float64)
-        names = [None] * len(self.vocabulary_)
-        for word, idx in self.vocabulary_.items():
-            names[idx] = word
-        self.feature_names_ = np.array(names, dtype=object)
-
     def joint_log_likelihood(self, documents) -> np.ndarray:
         """Unnormalised log P(c, d), shape (n_docs, 2), columns [ham, spam]."""
         self._check_fitted()
-        return self._joint_log_likelihood(list(documents))
+        doc_idx, ids, values, n = self._design(documents)
+        scores = np.tile(self._base_, (n, 1))
+        for c in (0, 1):
+            scores[:, c] += np.bincount(
+                doc_idx, weights=values * self._term_[c, ids], minlength=n
+            )
+        return scores
+
+    # Backwards-compatible private name.
+    _joint_log_likelihood = joint_log_likelihood
 
     def margin(self, documents) -> np.ndarray:
         """Spam margin S(d) for each document; positive means spam."""
         self._check_fitted()
-        documents = list(documents)
-        margins = np.full(len(documents), self.bias_, dtype=np.float64)
+        doc_idx, ids, values, n = self._design(documents)
+        return self.bias_ + np.bincount(
+            doc_idx, weights=values * self.weights_[ids], minlength=n
+        )
 
-        for row, document in enumerate(documents):
-            features = self._features(document)
-            if features:
-                idx = np.fromiter(features.keys(), dtype=np.int64)
-                x = np.fromiter(features.values(), dtype=np.float64)
-                margins[row] += float(x @ self.weights_[idx])
-
-        return margins
+    def _features(self, document: str) -> Counter:
+        """{term id: x_t} for one document."""
+        _, ids, values, _ = self._design([document])
+        features: Counter = Counter()
+        for idx, value in zip(ids.tolist(), values.tolist()):
+            features[idx] += value
+        return features
 
     def token_contributions(self, document: str) -> list[tuple[str, float, float]]:
         """Per-token share of S(d) as (token, x_t, x_t * w_t).
@@ -109,11 +207,7 @@ class BaseNaiveBayes:
         """
         self._check_fitted()
         rows = [
-            (
-                str(self.feature_names_[idx]),
-                float(x),
-                float(x * self.weights_[idx]),
-            )
+            (str(self.feature_names_[idx]), float(x), float(x * self.weights_[idx]))
             for idx, x in self._features(document).items()
         ]
         return sorted(rows, key=lambda row: row[2], reverse=True)
@@ -147,143 +241,46 @@ class BaseNaiveBayes:
 
 
 class MultinomialNB(BaseNaiveBayes):
-    """Multinomial Naive Bayes with add-alpha smoothing."""
+    """Multinomial Naive Bayes with add-alpha smoothing [IIR Fig. 13.2]."""
 
-    def fit(self, documents, labels):
-        tokenized, y = self._fit_common(documents, labels)
-        vocab_size = len(self.vocabulary_)
-
-        if vocab_size == 0:
-            raise ValueError("Training vocabulary is empty.")
-
-        # One count per occurrence of each word.
-        word_counts = np.zeros(
-            (2, vocab_size), dtype=np.float64
-        )
-
-        for tokens, label in zip(tokenized, y):
-            counts = Counter(tokens)
-            for word, count in counts.items():
-                word_counts[label, self.vocabulary_[word]] += count
+    def _estimate(self, doc_idx, codes, y, n_terms):
+        # T_ct: occurrences of term t in class c.
+        word_counts = np.bincount(
+            y[doc_idx] * n_terms + codes, minlength=2 * n_terms
+        ).reshape(2, n_terms).astype(np.float64)
 
         smoothed_counts = word_counts + self.alpha
-        denominators = (
-            smoothed_counts.sum(axis=1, keepdims=True)
-        )
+        denominators = smoothed_counts.sum(axis=1, keepdims=True)
 
-        self.feature_log_prob_ = np.log(
-            smoothed_counts / denominators
-        )
+        self.feature_count_ = word_counts
+        self.feature_log_prob_ = np.log(smoothed_counts / denominators)
+        self._base_ = self.log_prior_.copy()
+        self._term_ = self.feature_log_prob_
 
-        # w_t = log P(t|spam) - log P(t|ham); b = log P(spam) - log P(ham).
-        self._set_linear_form(
-            bias=self.log_prior_[1] - self.log_prior_[0],
-            weights=self.feature_log_prob_[1] - self.feature_log_prob_[0],
-        )
-        return self
-
-    def _features(self, document: str) -> Counter:
-        """x_t = term count; out-of-vocabulary tokens are dropped."""
-        features: Counter = Counter()
-        for word in tokenize(document):
-            idx = self.vocabulary_.get(word)
-            if idx is not None:
-                features[idx] += 1
-        return features
-
-    def _joint_log_likelihood(self, documents):
-        self._check_fitted()
-        scores = np.tile(self.log_prior_, (len(documents), 1))
-
-        for row, tokens in enumerate(documents):
-            counts = Counter(tokenize(tokens))
-            for word, count in counts.items():
-                idx = self.vocabulary_.get(word)
-                if idx is not None:
-                    scores[row] += count * self.feature_log_prob_[:, idx]
-
-        return scores
+    def _design(self, documents):
+        doc_idx, ids, n = self._encode(documents)
+        return doc_idx, ids, np.ones(ids.size), n
 
 
 class BernoulliNB(BaseNaiveBayes):
-    """Bernoulli Naive Bayes with add-alpha smoothing."""
+    """Bernoulli Naive Bayes with add-alpha smoothing [IIR Fig. 13.3]."""
 
-    def fit(self, documents, labels):
-        tokenized, y = self._fit_common(documents, labels)
-        vocab_size = len(self.vocabulary_)
-
-        if vocab_size == 0:
-            raise ValueError("Training vocabulary is empty.")
-
-        # Each word contributes at most once per document.
-        present_counts = np.zeros(
-            (2, vocab_size), dtype=np.float64
-        )
-
-        for tokens, label in zip(tokenized, y):
-            for word in set(tokens):
-                present_counts[label, self.vocabulary_[word]] += 1
-
-        class_counts = np.array([(y == c).sum() for c in self.classes_])
+    def _estimate(self, doc_idx, codes, y, n_terms):
+        # N_ct: documents of class c containing term t.
+        present_counts = self.doc_freq_
 
         # P(word present | class), smoothed.
-        self.feature_prob_ = (
-            present_counts + self.alpha
-        ) / (
-            class_counts[:, None] + 2.0 * self.alpha
+        self.feature_prob_ = (present_counts + self.alpha) / (
+            self.class_count_[:, None] + 2.0 * self.alpha
         )
-
         self.feature_log_prob_ = np.log(self.feature_prob_)
         self.feature_log_not_prob_ = np.log1p(-self.feature_prob_)
 
-        # Every vocabulary term starts "absent", contributing
-        # log(1 - p_t) per class; a present term swaps that for log p_t.
-        # delta_t = [log p_spam - log(1-p_spam)] - [log p_ham - log(1-p_ham)]
-        # b = log-prior difference + sum_t [log(1-p_spam) - log(1-p_ham)]
-        log_odds_present = self.feature_log_prob_ - self.feature_log_not_prob_
-        absent_total = self.feature_log_not_prob_.sum(axis=1)
-        self._set_linear_form(
-            bias=(self.log_prior_[1] - self.log_prior_[0])
-            + (absent_total[1] - absent_total[0]),
-            weights=log_odds_present[1] - log_odds_present[0],
-        )
+        # Every term starts "absent"; a present term swaps log(1-p) for log p.
+        self._base_ = self.log_prior_ + self.feature_log_not_prob_.sum(axis=1)
+        self._term_ = self.feature_log_prob_ - self.feature_log_not_prob_
 
-        return self
-
-    def _features(self, document: str) -> Counter:
-        """x_t = 1 if the term is present; repetitions do not count."""
-        return Counter(
-            {
-                idx: 1
-                for idx in {
-                    self.vocabulary_.get(word) for word in tokenize(document)
-                }
-                if idx is not None
-            }
-        )
-
-    def _joint_log_likelihood(self, documents):
-        self._check_fitted()
-
-        vocab_size = len(self.vocabulary_)
-        scores = np.tile(self.log_prior_, (len(documents), 1))
-
-        # Bernoulli NB includes the contribution of absent vocabulary terms.
-        scores += self.feature_log_not_prob_.sum(axis=1)
-
-        for row, document in enumerate(documents):
-            present_indices = {
-                self.vocabulary_[word]
-                for word in tokenize(document)
-                if word in self.vocabulary_
-            }
-
-            if present_indices:
-                indices = list(present_indices)
-                scores[row] += (
-                    self.feature_log_prob_[:, indices]
-                    - self.feature_log_not_prob_[:, indices]
-                ).sum(axis=1)
-
-        return scores
-
+    def _design(self, documents):
+        doc_idx, ids, n = self._encode(documents)
+        doc_idx, ids = self._unique_pairs(doc_idx, ids, len(self.vocabulary_))
+        return doc_idx, ids, np.ones(ids.size), n

@@ -4,6 +4,9 @@
   "test_fraction": 0.3,
   "smoothing_alpha": 1.0,
   "tokenizer": "lowercase_regex",
-  "split_strategy": "temporal",
+  "split_strategy": "temporal_per_class",
+  "split_note": "Enron-Spam ham ends in 2002 while spam runs to 2005, so one global cut leaves a 100%-spam test set. Each class is split at its own date: oldest 70% train, newest 30% test.",
+  "dedup_threshold": 0.8,
+  "bootstrap_resamples": 1000,
   "positive_label": 1
 }

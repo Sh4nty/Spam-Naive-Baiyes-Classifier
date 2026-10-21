@@ -1,0 +1,843 @@
+From 7b3d4c1233a1e741b44c6c178f8ce6d4af160cb5 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Tue, 20 Oct 2026 12:26:41 +0000
+Subject: [PATCH] Add textbook example tests, NB linear form (weights/margin)
+ and eval harness
+
+- Fix test_multinomial_counts_repeated_words: ham class has 6 tokens, not 5.
+- tests/test_textbook_examples.py: IIR Examples 13.1 (multinomial) and
+  13.2 (Bernoulli) reproduced exactly, including the printed values.
+- naive_bayes.py: public joint_log_likelihood(); bias_, weights_ and
+  feature_names_ set in fit(); margin(docs) = S(d) with spam positive;
+  token_contributions(doc) for per-token explanations.
+- metrics.py: confusion, P/R/F1/accuracy/FPR (spam positive, zero-safe),
+  vectorised percentile bootstrap CIs, evaluate(model, docs, labels,
+  attack) with before/after metrics, deltas, ASR on the attackable set
+  and token cost.
+- 63 tests passing.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01LTDmntMHWbdXgjMpRnBUVx
+---
+ src/spam_nb/metrics.py          | 228 ++++++++++++++++++++++++++++++++
+ src/spam_nb/naive_bayes.py      | 104 ++++++++++++++-
+ tests/test_linear_form.py       | 103 +++++++++++++++
+ tests/test_metrics.py           | 174 ++++++++++++++++++++++++
+ tests/test_naive_bayes.py       |   8 +-
+ tests/test_textbook_examples.py | 116 ++++++++++++++++
+ 6 files changed, 728 insertions(+), 5 deletions(-)
+ create mode 100644 src/spam_nb/metrics.py
+ create mode 100644 tests/test_linear_form.py
+ create mode 100644 tests/test_metrics.py
+ create mode 100644 tests/test_textbook_examples.py
+
+diff --git a/src/spam_nb/metrics.py b/src/spam_nb/metrics.py
+new file mode 100644
+index 0000000..6004baf
+--- /dev/null
++++ b/src/spam_nb/metrics.py
+@@ -0,0 +1,228 @@
++"""Evaluation harness. Spam (label 1) is the positive class throughout.
++
++P = TP / (TP + FP), R = TP / (TP + FN), F1 = 2PR / (P + R)  [IIR section 8.3]
++
++Evasion attacks show up as a Recall drop, poisoning as a Precision drop, so
++all three are always reported.
++"""
++
++from __future__ import annotations
++
++from typing import Callable, Sequence
++
++import numpy as np
++
++from spam_nb.tokenizer import tokenize
++
++# An attack takes a list of spam messages and returns the modified messages,
++# one for one. White-box attacks capture the model in a closure.
++Attack = Callable[[list[str]], list[str]]
++
++METRIC_NAMES = ("precision", "recall", "f1", "accuracy", "fpr")
++
++# Max resample-x-document cells held in memory at once during bootstrapping.
++BOOTSTRAP_CHUNK_CELLS = 20_000_000
++
++
++def _as_binary(values, name: str) -> np.ndarray:
++    arr = np.asarray(list(values), dtype=int)
++    if not np.isin(arr, [0, 1]).all():
++        raise ValueError(f"{name} must contain only 0 (ham) and 1 (spam).")
++    return arr
++
++
++def _safe_div(num, den):
++    """num / den, defined as 0 where den == 0 (e.g. no spam predicted)."""
++    num = np.asarray(num, dtype=np.float64)
++    den = np.asarray(den, dtype=np.float64)
++    out = np.zeros(np.broadcast(num, den).shape, dtype=np.float64)
++    np.divide(num, den, out=out, where=den != 0)
++    return out
++
++
++def confusion(y_true, y_pred) -> dict[str, int]:
++    """Confusion counts with spam as the positive class."""
++    t = _as_binary(y_true, "y_true").astype(bool)
++    p = _as_binary(y_pred, "y_pred").astype(bool)
++    if t.shape != p.shape:
++        raise ValueError("y_true and y_pred must have equal lengths.")
++    return {
++        "tp": int(np.sum(t & p)),
++        "fp": int(np.sum(~t & p)),
++        "tn": int(np.sum(~t & ~p)),
++        "fn": int(np.sum(t & ~p)),
++    }
++
++
++def _metrics_from_counts(tp, fp, tn, fn) -> dict[str, np.ndarray]:
++    precision = _safe_div(tp, tp + fp)
++    recall = _safe_div(tp, tp + fn)
++    f1 = _safe_div(2 * precision * recall, precision + recall)
++    accuracy = _safe_div(tp + tn, tp + fp + tn + fn)
++    fpr = _safe_div(fp, fp + tn)
++    return {
++        "precision": precision,
++        "recall": recall,
++        "f1": f1,
++        "accuracy": accuracy,
++        "fpr": fpr,
++    }
++
++
++def classification_metrics(y_true, y_pred) -> dict[str, float]:
++    """Precision, recall, F1, accuracy and false-positive rate.
++
++    A ratio whose denominator is zero is reported as 0.0. In particular,
++    if nothing is predicted as spam, precision, recall and F1 are all 0.
++    """
++    c = confusion(y_true, y_pred)
++    m = _metrics_from_counts(c["tp"], c["fp"], c["tn"], c["fn"])
++    return {name: float(value) for name, value in m.items()}
++
++
++def bootstrap_ci(
++    y_true,
++    y_pred,
++    n_resamples: int = 1000,
++    confidence: float = 0.95,
++    seed: int = 42,
++) -> dict[str, tuple[float, float]]:
++    """Percentile bootstrap CIs for every metric in METRIC_NAMES.
++
++    The test set is resampled with replacement n_resamples times; all
++    resamples are scored in one vectorised pass.
++    """
++    t = _as_binary(y_true, "y_true").astype(bool)
++    p = _as_binary(y_pred, "y_pred").astype(bool)
++    if t.shape != p.shape:
++        raise ValueError("y_true and y_pred must have equal lengths.")
++    if len(t) == 0:
++        raise ValueError("Cannot bootstrap an empty test set.")
++    if not 0.0 < confidence < 1.0:
++        raise ValueError("confidence must be between 0 and 1.")
++
++    rng = np.random.default_rng(seed)
++    n = len(t)
++    tp = np.empty(n_resamples)
++    fp = np.empty(n_resamples)
++    tn = np.empty(n_resamples)
++    fn = np.empty(n_resamples)
++
++    # Chunk the resamples to keep memory flat on large test sets.
++    chunk = max(1, min(n_resamples, BOOTSTRAP_CHUNK_CELLS // max(n, 1)))
++    for start in range(0, n_resamples, chunk):
++        stop = min(start + chunk, n_resamples)
++        idx = rng.integers(0, n, size=(stop - start, n))
++        bt, bp = t[idx], p[idx]
++        tp[start:stop] = np.sum(bt & bp, axis=1)
++        fp[start:stop] = np.sum(~bt & bp, axis=1)
++        tn[start:stop] = np.sum(~bt & ~bp, axis=1)
++        fn[start:stop] = np.sum(bt & ~bp, axis=1)
++
++    samples = _metrics_from_counts(tp, fp, tn, fn)
++    lo_q = 100 * (1 - confidence) / 2
++    hi_q = 100 - lo_q
++    return {
++        name: (
++            float(np.percentile(values, lo_q)),
++            float(np.percentile(values, hi_q)),
++        )
++        for name, values in samples.items()
++    }
++
++
++def _summary(y_true, y_pred, n_resamples, seed) -> dict:
++    result = {
++        "metrics": classification_metrics(y_true, y_pred),
++        "confusion": confusion(y_true, y_pred),
++    }
++    if n_resamples:
++        result["ci"] = bootstrap_ci(y_true, y_pred, n_resamples, seed=seed)
++    return result
++
++
++def evaluate(
++    model,
++    documents: Sequence[str],
++    labels: Sequence[int],
++    attack: Attack | None = None,
++    n_resamples: int = 1000,
++    seed: int = 42,
++) -> dict:
++    """Score a fitted model, optionally under an evasion attack.
++
++    The attack is applied to spam messages only; ham is left untouched.
++
++    Returns a dict with:
++      clean            metrics, confusion counts and bootstrap CIs
++      clean_margin     S(d) for every test document
++    and, when an attack is given:
++      attacked         metrics / confusion / CIs after the attack
++      attacked_margin  S(d) after the attack
++      delta            attacked minus clean, for every metric
++      asr              attack success rate: share of spam the clean model
++                       caught that the attack now lets through
++      n_attackable     size of that set (spam correctly flagged when clean)
++      tokens_added     mean extra tokens per attacked spam message
++      length_increase  mean relative token-length increase per message
++      attacked_documents  the modified test set, for inspection
++    Set n_resamples=0 to skip bootstrapping (fast, for grid sweeps).
++    """
++    docs = [str(d) for d in documents]
++    y = _as_binary(labels, "labels")
++    if len(docs) != len(y):
++        raise ValueError("Documents and labels must have equal lengths.")
++
++    clean_margin = model.margin(docs)
++    clean_pred = (clean_margin > 0).astype(int)
++    result = {
++        "clean": _summary(y, clean_pred, n_resamples, seed),
++        "clean_margin": clean_margin,
++    }
++    if attack is None:
++        return result
++
++    spam_idx = np.flatnonzero(y == 1)
++    original = [docs[i] for i in spam_idx]
++    modified = list(attack(list(original)))
++    if len(modified) != len(original):
++        raise ValueError(
++            f"Attack returned {len(modified)} messages for "
++            f"{len(original)} inputs; it must map one to one."
++        )
++
++    attacked_docs = list(docs)
++    for i, text in zip(spam_idx, modified):
++        attacked_docs[i] = str(text)
++
++    attacked_margin = clean_margin.copy()
++    if len(spam_idx):
++        attacked_margin[spam_idx] = model.margin([attacked_docs[i] for i in spam_idx])
++    attacked_pred = (attacked_margin > 0).astype(int)
++
++    attacked = _summary(y, attacked_pred, n_resamples, seed)
++    attackable = (y == 1) & (clean_pred == 1)
++    evaded = attackable & (attacked_pred == 0)
++
++    before = np.array([len(tokenize(d)) for d in original], dtype=float)
++    after = np.array([len(tokenize(d)) for d in modified], dtype=float)
++    added = after - before
++
++    result.update(
++        {
++            "attacked": attacked,
++            "attacked_margin": attacked_margin,
++            "delta": {
++                name: attacked["metrics"][name] - result["clean"]["metrics"][name]
++                for name in METRIC_NAMES
++            },
++            "asr": float(_safe_div(evaded.sum(), attackable.sum())),
++            "n_attackable": int(attackable.sum()),
++            "tokens_added": float(added.mean()) if len(added) else 0.0,
++            "length_increase": float(_safe_div(added, np.maximum(before, 1)).mean())
++            if len(added)
++            else 0.0,
++            "attacked_documents": attacked_docs,
++        }
++    )
++    return result
+diff --git a/src/spam_nb/naive_bayes.py b/src/spam_nb/naive_bayes.py
+index 0ab2176..edb1791 100644
+--- a/src/spam_nb/naive_bayes.py
++++ b/src/spam_nb/naive_bayes.py
+@@ -59,11 +59,68 @@ class BaseNaiveBayes:
+         if not self.is_fitted_:
+             raise RuntimeError("Call fit() before prediction.")
+ 
+-    def predict_log_proba(self, documents) -> np.ndarray:
+-        """Return normalized log probabilities, columns [ham, spam]."""
++    # ------------------------------------------------------------------
++    # Linear form (spam is the positive class)
++    #
++    # Both NB variants are linear in log space:
++    #   S(d) = log P(spam, d) - log P(ham, d) = bias_ + sum_t x_t * weights_[t]
++    # where x_t is the term count (multinomial) or a 0/1 presence
++    # indicator (Bernoulli). A document is spam exactly when S(d) > 0.
++    # Attacks (A2-A4) and defences (D2-D4) work on this form.
++    # ------------------------------------------------------------------
++
++    def _features(self, document: str) -> Counter:
++        """Map a document to {vocab index: x_t}. Overridden per variant."""
++        raise NotImplementedError
++
++    def _set_linear_form(self, bias: float, weights: np.ndarray) -> None:
++        self.bias_ = float(bias)
++        self.weights_ = np.asarray(weights, dtype=np.float64)
++        names = [None] * len(self.vocabulary_)
++        for word, idx in self.vocabulary_.items():
++            names[idx] = word
++        self.feature_names_ = np.array(names, dtype=object)
++
++    def joint_log_likelihood(self, documents) -> np.ndarray:
++        """Unnormalised log P(c, d), shape (n_docs, 2), columns [ham, spam]."""
++        self._check_fitted()
++        return self._joint_log_likelihood(list(documents))
++
++    def margin(self, documents) -> np.ndarray:
++        """Spam margin S(d) for each document; positive means spam."""
++        self._check_fitted()
++        documents = list(documents)
++        margins = np.full(len(documents), self.bias_, dtype=np.float64)
++
++        for row, document in enumerate(documents):
++            features = self._features(document)
++            if features:
++                idx = np.fromiter(features.keys(), dtype=np.int64)
++                x = np.fromiter(features.values(), dtype=np.float64)
++                margins[row] += float(x @ self.weights_[idx])
++
++        return margins
++
++    def token_contributions(self, document: str) -> list[tuple[str, float, float]]:
++        """Per-token share of S(d) as (token, x_t, x_t * w_t).
++
++        Sorted from most spam-pushing to most ham-pushing. The bias is not
++        included; margin(d) == bias_ + sum of the contributions.
++        """
+         self._check_fitted()
++        rows = [
++            (
++                str(self.feature_names_[idx]),
++                float(x),
++                float(x * self.weights_[idx]),
++            )
++            for idx, x in self._features(document).items()
++        ]
++        return sorted(rows, key=lambda row: row[2], reverse=True)
+ 
+-        scores = self._joint_log_likelihood(documents)
++    def predict_log_proba(self, documents) -> np.ndarray:
++        """Return normalized log probabilities, columns [ham, spam]."""
++        scores = self.joint_log_likelihood(documents)
+ 
+         # Numerically stable log-sum-exp normalization.
+         max_score = scores.max(axis=1, keepdims=True)
+@@ -77,7 +134,7 @@ class BaseNaiveBayes:
+         return np.exp(self.predict_log_proba(documents))
+ 
+     def predict(self, documents) -> np.ndarray:
+-        return self._joint_log_likelihood(documents).argmax(axis=1)
++        return self.joint_log_likelihood(documents).argmax(axis=1)
+ 
+     def score(self, documents, labels) -> float:
+         y = np.asarray(list(labels), dtype=int)
+@@ -117,8 +174,23 @@ class MultinomialNB(BaseNaiveBayes):
+         self.feature_log_prob_ = np.log(
+             smoothed_counts / denominators
+         )
++
++        # w_t = log P(t|spam) - log P(t|ham); b = log P(spam) - log P(ham).
++        self._set_linear_form(
++            bias=self.log_prior_[1] - self.log_prior_[0],
++            weights=self.feature_log_prob_[1] - self.feature_log_prob_[0],
++        )
+         return self
+ 
++    def _features(self, document: str) -> Counter:
++        """x_t = term count; out-of-vocabulary tokens are dropped."""
++        features: Counter = Counter()
++        for word in tokenize(document):
++            idx = self.vocabulary_.get(word)
++            if idx is not None:
++                features[idx] += 1
++        return features
++
+     def _joint_log_likelihood(self, documents):
+         self._check_fitted()
+         scores = np.tile(self.log_prior_, (len(documents), 1))
+@@ -164,8 +236,32 @@ class BernoulliNB(BaseNaiveBayes):
+         self.feature_log_prob_ = np.log(self.feature_prob_)
+         self.feature_log_not_prob_ = np.log1p(-self.feature_prob_)
+ 
++        # Every vocabulary term starts "absent", contributing
++        # log(1 - p_t) per class; a present term swaps that for log p_t.
++        # delta_t = [log p_spam - log(1-p_spam)] - [log p_ham - log(1-p_ham)]
++        # b = log-prior difference + sum_t [log(1-p_spam) - log(1-p_ham)]
++        log_odds_present = self.feature_log_prob_ - self.feature_log_not_prob_
++        absent_total = self.feature_log_not_prob_.sum(axis=1)
++        self._set_linear_form(
++            bias=(self.log_prior_[1] - self.log_prior_[0])
++            + (absent_total[1] - absent_total[0]),
++            weights=log_odds_present[1] - log_odds_present[0],
++        )
++
+         return self
+ 
++    def _features(self, document: str) -> Counter:
++        """x_t = 1 if the term is present; repetitions do not count."""
++        return Counter(
++            {
++                idx: 1
++                for idx in {
++                    self.vocabulary_.get(word) for word in tokenize(document)
++                }
++                if idx is not None
++            }
++        )
++
+     def _joint_log_likelihood(self, documents):
+         self._check_fitted()
+ 
+diff --git a/tests/test_linear_form.py b/tests/test_linear_form.py
+new file mode 100644
+index 0000000..0e4d349
+--- /dev/null
++++ b/tests/test_linear_form.py
+@@ -0,0 +1,103 @@
++"""The linear form S(d) = bias_ + sum_t x_t * weights_[t] must agree with
++the probabilistic scorer, because every attack and defence relies on it."""
++
++import numpy as np
++import pytest
++
++from spam_nb.naive_bayes import BernoulliNB, MultinomialNB
++
++TRAIN_DOCS = [
++    "meeting schedule project budget review",
++    "project meeting tomorrow at the office",
++    "please review the attached budget report",
++    "lunch with the team tomorrow",
++    "free prize claim now click here",
++    "claim your free prize money now",
++    "cheap pills discount offer click",
++    "winner winner free money offer",
++]
++TRAIN_LABELS = [0, 0, 0, 0, 1, 1, 1, 1]
++
++TEST_DOCS = [
++    "meeting about the budget",
++    "free money click now",
++    "project prize offer tomorrow",
++    "completely unseen words only",
++    "",
++    "FREE FREE FREE prize prize",
++]
++
++MODELS = [MultinomialNB, BernoulliNB]
++
++
++@pytest.fixture(params=MODELS, ids=lambda m: m.__name__)
++def model(request):
++    return request.param(alpha=1.0).fit(TRAIN_DOCS, TRAIN_LABELS)
++
++
++def test_weights_shape_and_names(model):
++    assert model.weights_.shape == (len(model.vocabulary_),)
++    for word, idx in model.vocabulary_.items():
++        assert model.feature_names_[idx] == word
++
++
++def test_margin_equals_log_posterior_odds(model):
++    log_proba = model.predict_log_proba(TEST_DOCS)
++    expected = log_proba[:, 1] - log_proba[:, 0]
++    assert np.allclose(model.margin(TEST_DOCS), expected, atol=1e-9)
++
++
++def test_margin_equals_joint_log_likelihood_difference(model):
++    jll = model.joint_log_likelihood(TEST_DOCS)
++    assert np.allclose(model.margin(TEST_DOCS), jll[:, 1] - jll[:, 0], atol=1e-9)
++
++
++def test_positive_margin_is_exactly_spam_prediction(model):
++    assert ((model.margin(TEST_DOCS) > 0).astype(int) == model.predict(TEST_DOCS)).all()
++
++
++def test_unseen_and_empty_documents_score_the_bias(model):
++    margins = model.margin(["completely unseen words only", ""])
++    assert margins == pytest.approx([model.bias_, model.bias_])
++
++
++def test_contributions_sum_to_margin(model):
++    for doc in TEST_DOCS:
++        contributions = model.token_contributions(doc)
++        total = model.bias_ + sum(c for _, _, c in contributions)
++        assert total == pytest.approx(model.margin([doc])[0], abs=1e-9)
++
++
++def test_contributions_sorted_spammiest_first(model):
++    contributions = model.token_contributions("meeting free prize budget")
++    values = [c for _, _, c in contributions]
++    assert values == sorted(values, reverse=True)
++
++
++def test_multinomial_one_extra_token_shifts_margin_by_its_weight():
++    """Basis of the analytic breaking point b*(d) (proposal section 6.3)."""
++    model = MultinomialNB().fit(TRAIN_DOCS, TRAIN_LABELS)
++    doc = "free money click now"
++    base = model.margin([doc])[0]
++
++    for word in ("meeting", "budget", "prize"):
++        w = model.weights_[model.vocabulary_[word]]
++        assert model.margin([doc + " " + word])[0] == pytest.approx(base + w)
++        # Repetition keeps paying: k copies shift the margin by k * w.
++        assert model.margin([doc + (" " + word) * 5])[0] == pytest.approx(base + 5 * w)
++
++
++def test_bernoulli_repetition_does_not_change_margin():
++    model = BernoulliNB().fit(TRAIN_DOCS, TRAIN_LABELS)
++    doc = "free money click now meeting"
++    base = model.margin([doc])[0]
++    assert model.margin([doc + " meeting meeting meeting"])[0] == pytest.approx(base)
++
++    # A new distinct word shifts it by exactly delta_t, once.
++    delta = model.weights_[model.vocabulary_["budget"]]
++    assert model.margin([doc + " budget"])[0] == pytest.approx(base + delta)
++
++
++def test_hammy_words_have_negative_weight(model):
++    assert model.weights_[model.vocabulary_["meeting"]] < 0
++    assert model.weights_[model.vocabulary_["free"]] > 0
+diff --git a/tests/test_metrics.py b/tests/test_metrics.py
+new file mode 100644
+index 0000000..e35b94b
+--- /dev/null
++++ b/tests/test_metrics.py
+@@ -0,0 +1,174 @@
++import numpy as np
++import pytest
++
++from spam_nb.metrics import (
++    bootstrap_ci,
++    classification_metrics,
++    confusion,
++    evaluate,
++)
++from spam_nb.naive_bayes import BernoulliNB, MultinomialNB
++
++# ----------------------------------------------------------------------------
++# Point metrics (spam = 1 is positive)
++# ----------------------------------------------------------------------------
++
++Y_TRUE = [1, 1, 1, 1, 0, 0, 0, 0, 0, 0]
++Y_PRED = [1, 1, 1, 0, 1, 0, 0, 0, 0, 0]  # TP=3 FN=1 FP=1 TN=5
++
++
++def test_confusion_counts():
++    assert confusion(Y_TRUE, Y_PRED) == {"tp": 3, "fp": 1, "tn": 5, "fn": 1}
++
++
++def test_metrics_by_hand():
++    m = classification_metrics(Y_TRUE, Y_PRED)
++    assert m["precision"] == pytest.approx(3 / 4)
++    assert m["recall"] == pytest.approx(3 / 4)
++    assert m["f1"] == pytest.approx(3 / 4)
++    assert m["accuracy"] == pytest.approx(8 / 10)
++    assert m["fpr"] == pytest.approx(1 / 6)
++
++
++def test_spam_is_the_positive_class():
++    # Swapping the roles of the classes must change precision and recall.
++    m = classification_metrics([1, 0, 0, 0], [1, 1, 0, 0])
++    assert m["precision"] == pytest.approx(1 / 2)
++    assert m["recall"] == pytest.approx(1.0)
++
++
++def test_nothing_predicted_as_spam_gives_zero_not_nan():
++    m = classification_metrics([1, 1, 0], [0, 0, 0])
++    assert m["precision"] == 0.0
++    assert m["recall"] == 0.0
++    assert m["f1"] == 0.0
++    assert not any(np.isnan(v) for v in m.values())
++
++
++def test_invalid_labels_rejected():
++    with pytest.raises(ValueError):
++        classification_metrics([1, 2], [1, 0])
++    with pytest.raises(ValueError):
++        classification_metrics([1, 0, 1], [1, 0])
++
++
++# ----------------------------------------------------------------------------
++# Bootstrap CIs
++# ----------------------------------------------------------------------------
++
++def _noisy_predictions(n=2000, seed=0):
++    rng = np.random.default_rng(seed)
++    y = rng.integers(0, 2, n)
++    flip = rng.random(n) < 0.1
++    return y, np.where(flip, 1 - y, y)
++
++
++def test_bootstrap_is_deterministic_for_a_seed():
++    y, p = _noisy_predictions()
++    assert bootstrap_ci(y, p, seed=7) == bootstrap_ci(y, p, seed=7)
++    assert bootstrap_ci(y, p, seed=7) != bootstrap_ci(y, p, seed=8)
++
++
++def test_bootstrap_interval_brackets_the_point_estimate():
++    y, p = _noisy_predictions()
++    point = classification_metrics(y, p)
++    ci = bootstrap_ci(y, p)
++    for name, (lo, hi) in ci.items():
++        assert lo <= point[name] <= hi
++        assert hi - lo < 0.06  # 2,000 documents -> tight interval
++
++
++def test_bootstrap_perfect_classifier():
++    y = [1, 0] * 50
++    ci = bootstrap_ci(y, y)
++    assert ci["f1"] == (1.0, 1.0)
++    assert ci["fpr"] == (0.0, 0.0)
++
++
++def test_bootstrap_chunking_gives_same_answer(monkeypatch):
++    # Memory chunking on big test sets must not change the result.
++    import spam_nb.metrics as metrics
++
++    y, p = _noisy_predictions(n=300)
++    one_chunk = bootstrap_ci(y, p, n_resamples=200, seed=3)
++
++    monkeypatch.setattr(metrics, "BOOTSTRAP_CHUNK_CELLS", 300 * 7)  # 7 per chunk
++    assert metrics.bootstrap_ci(y, p, n_resamples=200, seed=3) == one_chunk
++
++
++# ----------------------------------------------------------------------------
++# evaluate(): clean and under attack
++# ----------------------------------------------------------------------------
++
++TRAIN_DOCS = [
++    "meeting schedule project budget review",
++    "project meeting tomorrow at the office",
++    "please review the attached budget report",
++    "lunch with the team tomorrow",
++    "free prize claim now click here",
++    "claim your free prize money now",
++    "cheap pills discount offer click",
++    "winner winner free money offer",
++]
++TRAIN_LABELS = [0, 0, 0, 0, 1, 1, 1, 1]
++TEST_DOCS = [
++    "budget meeting tomorrow",
++    "team lunch review",
++    "free prize money now",
++    "cheap offer click here",
++]
++TEST_LABELS = [0, 0, 1, 1]
++
++
++@pytest.fixture(params=[MultinomialNB, BernoulliNB], ids=lambda m: m.__name__)
++def model(request):
++    return request.param().fit(TRAIN_DOCS, TRAIN_LABELS)
++
++
++def test_clean_evaluation_matches_predict(model):
++    result = evaluate(model, TEST_DOCS, TEST_LABELS, n_resamples=100)
++    expected = classification_metrics(TEST_LABELS, model.predict(TEST_DOCS))
++    assert result["clean"]["metrics"] == expected
++    assert "attacked" not in result
++    assert set(result["clean"]["ci"]) == set(expected)
++
++
++def test_identity_attack_changes_nothing(model):
++    result = evaluate(model, TEST_DOCS, TEST_LABELS, attack=lambda d: d, n_resamples=0)
++    assert result["asr"] == 0.0
++    assert result["tokens_added"] == 0.0
++    assert all(v == 0.0 for v in result["delta"].values())
++
++
++def test_attack_touches_only_spam(model):
++    seen = []
++
++    def spy(docs):
++        seen.extend(docs)
++        return [d + " meeting" for d in docs]
++
++    result = evaluate(model, TEST_DOCS, TEST_LABELS, attack=spy, n_resamples=0)
++    assert seen == ["free prize money now", "cheap offer click here"]
++    assert result["attacked_documents"][:2] == TEST_DOCS[:2]
++    assert result["tokens_added"] == 1.0
++
++
++def test_hammy_padding_evades_and_lowers_recall():
++    model = MultinomialNB().fit(TRAIN_DOCS, TRAIN_LABELS)
++    pad = " meeting budget review project tomorrow" * 3
++
++    result = evaluate(
++        model, TEST_DOCS, TEST_LABELS, attack=lambda d: [x + pad for x in d], n_resamples=0
++    )
++
++    assert result["clean"]["metrics"]["recall"] == 1.0
++    assert result["n_attackable"] == 2
++    assert result["asr"] == 1.0
++    assert result["attacked"]["metrics"]["recall"] == 0.0
++    assert result["delta"]["recall"] == -1.0
++    assert (result["attacked_margin"][2:] < result["clean_margin"][2:]).all()
++
++
++def test_attack_must_return_one_message_per_input(model):
++    with pytest.raises(ValueError, match="one to one"):
++        evaluate(model, TEST_DOCS, TEST_LABELS, attack=lambda d: d[:1], n_resamples=0)
+diff --git a/tests/test_naive_bayes.py b/tests/test_naive_bayes.py
+index 52d6a85..c03af37 100644
+--- a/tests/test_naive_bayes.py
++++ b/tests/test_naive_bayes.py
+@@ -76,8 +76,14 @@ def test_multinomial_counts_repeated_words(training_data):
+     meeting_idx = model.vocabulary_["meeting"]
+ 
+     # Both ham emails contain "meeting", so the total is two.
++    # The ham class has 6 tokens in total (3 + 3), which is the
++    # denominator before smoothing: (T_ct + 1) / (sum_t' T_ct' + |V|).
++    ham_tokens = sum(
++        len(doc.split()) for doc, y in zip(documents, labels) if y == 0
++    )
++    assert ham_tokens == 6
+     assert model.feature_log_prob_[0, meeting_idx] == pytest.approx(
+-        np.log((2 + 1) / (5 + len(model.vocabulary_)))
++        np.log((2 + 1) / (ham_tokens + len(model.vocabulary_)))
+     )
+ 
+ 
+diff --git a/tests/test_textbook_examples.py b/tests/test_textbook_examples.py
+new file mode 100644
+index 0000000..6026a3a
+--- /dev/null
++++ b/tests/test_textbook_examples.py
+@@ -0,0 +1,116 @@
++"""Exact replication of Manning, Raghavan & Schuetze, IIR Ch. 13.
++
++Example 13.1 (multinomial NB) and Example 13.2 (Bernoulli NB) use the same
++four training documents. Class c = "China" is encoded as label 1 and
++class c-bar = "not China" as label 0, matching the project's convention
++that the class of interest (spam) is the positive class.
++"""
++
++import numpy as np
++import pytest
++
++from spam_nb.naive_bayes import BernoulliNB, MultinomialNB
++
++TRAIN_DOCS = [
++    "Chinese Beijing Chinese",
++    "Chinese Chinese Shanghai",
++    "Chinese Macao",
++    "Tokyo Japan Chinese",
++]
++TRAIN_LABELS = [1, 1, 1, 0]
++TEST_DOC = "Chinese Chinese Chinese Tokyo Japan"
++
++# The tokenizer lowercases, so vocabulary keys are lowercase.
++HAM, SPAM = 0, 1  # column order of the model: [not China, China]
++
++
++def _prob(model, cls, word):
++    return float(np.exp(model.feature_log_prob_[cls, model.vocabulary_[word]]))
++
++
++# --------------------------------------------------------------------------
++# Example 13.1 - Multinomial NB
++# --------------------------------------------------------------------------
++
++@pytest.fixture
++def multinomial():
++    return MultinomialNB(alpha=1.0).fit(TRAIN_DOCS, TRAIN_LABELS)
++
++
++def test_example_13_1_vocabulary_size(multinomial):
++    # chinese, beijing, shanghai, macao, tokyo, japan
++    assert len(multinomial.vocabulary_) == 6
++
++
++def test_example_13_1_priors(multinomial):
++    assert np.exp(multinomial.log_prior_[SPAM]) == pytest.approx(3 / 4)
++    assert np.exp(multinomial.log_prior_[HAM]) == pytest.approx(1 / 4)
++
++
++def test_example_13_1_conditional_probabilities(multinomial):
++    # China class: 8 tokens, |V| = 6 -> denominator 14.
++    assert _prob(multinomial, SPAM, "chinese") == pytest.approx(6 / 14)  # = 3/7
++    assert _prob(multinomial, SPAM, "tokyo") == pytest.approx(1 / 14)
++    assert _prob(multinomial, SPAM, "japan") == pytest.approx(1 / 14)
++    # Not-China class: 3 tokens, |V| = 6 -> denominator 9.
++    assert _prob(multinomial, HAM, "chinese") == pytest.approx(2 / 9)
++    assert _prob(multinomial, HAM, "tokyo") == pytest.approx(2 / 9)
++    assert _prob(multinomial, HAM, "japan") == pytest.approx(2 / 9)
++
++
++def test_example_13_1_scores_and_decision(multinomial):
++    scores = np.exp(multinomial.joint_log_likelihood([TEST_DOC])[0])
++
++    expected_china = 3 / 4 * (3 / 7) ** 3 * (1 / 14) * (1 / 14)
++    expected_not_china = 1 / 4 * (2 / 9) ** 3 * (2 / 9) * (2 / 9)
++
++    assert scores[SPAM] == pytest.approx(expected_china, rel=1e-12)
++    assert scores[HAM] == pytest.approx(expected_not_china, rel=1e-12)
++    # Textbook values, as printed: ~0.0003 vs ~0.0001.
++    assert round(scores[SPAM], 4) == 0.0003
++    assert round(scores[HAM], 4) == 0.0001
++    assert multinomial.predict([TEST_DOC]).tolist() == [SPAM]
++
++
++# --------------------------------------------------------------------------
++# Example 13.2 - Bernoulli NB
++# --------------------------------------------------------------------------
++
++@pytest.fixture
++def bernoulli():
++    return BernoulliNB(alpha=1.0).fit(TRAIN_DOCS, TRAIN_LABELS)
++
++
++def test_example_13_2_conditional_probabilities(bernoulli):
++    # P(t|c) = (N_ct + 1) / (N_c + 2), with N_china = 3 and N_not = 1.
++    assert _prob(bernoulli, SPAM, "chinese") == pytest.approx(4 / 5)
++    assert _prob(bernoulli, SPAM, "japan") == pytest.approx(1 / 5)
++    assert _prob(bernoulli, SPAM, "tokyo") == pytest.approx(1 / 5)
++    for word in ("beijing", "macao", "shanghai"):
++        assert _prob(bernoulli, SPAM, word) == pytest.approx(2 / 5)
++
++    assert _prob(bernoulli, HAM, "chinese") == pytest.approx(2 / 3)
++    assert _prob(bernoulli, HAM, "japan") == pytest.approx(2 / 3)
++    assert _prob(bernoulli, HAM, "tokyo") == pytest.approx(2 / 3)
++    for word in ("beijing", "macao", "shanghai"):
++        assert _prob(bernoulli, HAM, word) == pytest.approx(1 / 3)
++
++
++def test_example_13_2_scores_and_decision(bernoulli):
++    scores = np.exp(bernoulli.joint_log_likelihood([TEST_DOC])[0])
++
++    # Present: chinese, japan, tokyo. Absent: beijing, macao, shanghai.
++    expected_china = 3 / 4 * (4 / 5) * (1 / 5) * (1 / 5) * (1 - 2 / 5) ** 3
++    expected_not_china = 1 / 4 * (2 / 3) * (2 / 3) * (2 / 3) * (1 - 1 / 3) ** 3
++
++    assert scores[SPAM] == pytest.approx(expected_china, rel=1e-12)
++    assert scores[HAM] == pytest.approx(expected_not_china, rel=1e-12)
++    # Textbook values, as printed: ~0.005 vs ~0.022.
++    assert round(scores[SPAM], 3) == 0.005
++    assert round(scores[HAM], 3) == 0.022
++    assert bernoulli.predict([TEST_DOC]).tolist() == [HAM]
++
++
++def test_models_disagree_on_example_document(multinomial, bernoulli):
++    """The point of the two examples: same data, different event models."""
++    assert multinomial.predict([TEST_DOC])[0] != bernoulli.predict([TEST_DOC])[0]
+-- 
+2.43.0
+
