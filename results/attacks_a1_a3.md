@@ -8,18 +8,18 @@ Victims trained on the Enron training split, full vocabulary, alpha = 1. Attacks
 
 | Attack | b=0 | b=5 | b=10 | b=20 | b=50 | b=100 | b=200 | b=500 | Breaking point | Robustness AUC |
 |---|---|---|---|---|---|---|---|---|---|---|
-| A1 random padding (T1, control) | 0.917 | 0.928 | 0.939 | 0.956 | 0.982 | 0.991 | 0.993 | 0.993 | > 500 | 1.078 |
+| A1 random padding (T1, control) | 0.917 | 0.928 | 0.939 | 0.955 | 0.981 | 0.992 | 0.993 | 0.993 | > 500 | 1.078 |
 | A1 common-word padding (T1, control) | 0.917 | 0.905 | 0.887 | 0.893 | 0.896 | 0.992 | 0.993 | 0.993 | > 500 | 1.066 |
-| A2 passive good-word (T2) | 0.917 | 0.935 | 0.926 | 0.922 | 0.850 | 0.768 | 0.791 | 0.993 | > 500 | 0.940 |
+| A2 passive good-word (T2) | 0.917 | 0.935 | 0.926 | 0.922 | 0.873 | 0.768 | 0.805 | 0.993 | > 500 | 0.948 |
 | A3 white-box, distinct words (T4) | 0.917 | 0.468 | 0.280 | 0.141 | 0.042 | 0.005 | 0.000 | 0.000 | 10 | 0.025 |
 
 ### multinomial (clean F1 = 0.967)
 
 | Attack | b=0 | b=5 | b=10 | b=20 | b=50 | b=100 | b=200 | b=500 | Breaking point | Robustness AUC |
 |---|---|---|---|---|---|---|---|---|---|---|
-| A1 random padding (T1, control) | 0.967 | 0.970 | 0.972 | 0.975 | 0.979 | 0.981 | 0.981 | 0.981 | > 500 | 1.014 |
+| A1 random padding (T1, control) | 0.967 | 0.970 | 0.972 | 0.975 | 0.978 | 0.981 | 0.981 | 0.981 | > 500 | 1.014 |
 | A1 common-word padding (T1, control) | 0.967 | 0.967 | 0.965 | 0.968 | 0.972 | 0.981 | 0.981 | 0.981 | > 500 | 1.013 |
-| A2 passive good-word (T2) | 0.967 | 0.972 | 0.968 | 0.967 | 0.937 | 0.851 | 0.794 | 0.980 | > 500 | 0.912 |
+| A2 passive good-word (T2) | 0.967 | 0.972 | 0.968 | 0.967 | 0.944 | 0.851 | 0.802 | 0.980 | > 500 | 0.916 |
 | A3 white-box, distinct words (T4) | 0.967 | 0.688 | 0.387 | 0.240 | 0.101 | 0.042 | 0.008 | 0.000 | 10 | 0.046 |
 | A3 white-box, one word repeated (T4) | 0.967 | 0.564 | 0.310 | 0.193 | 0.053 | 0.008 | 0.000 | 0.000 | 10 | 0.029 |
 
@@ -27,14 +27,14 @@ Victims trained on the Enron training split, full vocabulary, alpha = 1. Attacks
 
 | Model | Attack | Recall | F1 | ASR |
 |---|---|---|---|---|
-| multinomial | A1 random padding (T1, control) | 0.996 [0.994, 0.997] | 0.979 [0.977, 0.982] | 0.001 |
+| multinomial | A1 random padding (T1, control) | 0.994 [0.992, 0.996] | 0.978 [0.975, 0.981] | 0.000 |
 | multinomial | A1 common-word padding (T1, control) | 0.981 [0.977, 0.985] | 0.972 [0.969, 0.975] | 0.000 |
-| multinomial | A2 passive good-word (T2) | 0.915 [0.907, 0.923] | 0.937 [0.932, 0.942] | 0.058 |
+| multinomial | A2 passive good-word (T2) | 0.927 [0.920, 0.935] | 0.944 [0.939, 0.948] | 0.045 |
 | multinomial | A3 white-box, distinct words (T4) | 0.055 [0.049, 0.061] | 0.101 [0.090, 0.112] | 0.943 |
 | multinomial | A3 white-box, one word repeated (T4) | 0.028 [0.023, 0.033] | 0.053 [0.044, 0.061] | 0.971 |
-| bernoulli | A1 random padding (T1, control) | 0.978 [0.974, 0.982] | 0.982 [0.979, 0.984] | 0.000 |
+| bernoulli | A1 random padding (T1, control) | 0.980 [0.976, 0.984] | 0.983 [0.980, 0.985] | 0.001 |
 | bernoulli | A1 common-word padding (T1, control) | 0.822 [0.812, 0.832] | 0.896 [0.889, 0.902] | 0.049 |
-| bernoulli | A2 passive good-word (T2) | 0.750 [0.738, 0.762] | 0.850 [0.842, 0.858] | 0.128 |
+| bernoulli | A2 passive good-word (T2) | 0.786 [0.775, 0.797] | 0.873 [0.866, 0.880] | 0.085 |
 | bernoulli | A3 white-box, distinct words (T4) | 0.021 [0.018, 0.026] | 0.042 [0.034, 0.050] | 0.975 |
 
 ## Analytic minimum effort b*(d) on the attackable spam

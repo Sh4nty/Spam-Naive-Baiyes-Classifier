@@ -1,0 +1,314 @@
+{
+  "config": {
+    "seed": 42,
+    "train_fraction": 0.7,
+    "test_fraction": 0.3,
+    "smoothing_alpha": 1.0,
+    "tokenizer": "lowercase_regex",
+    "split_strategy": "temporal_per_class",
+    "split_note": "Enron-Spam ham ends in 2002 while spam runs to 2005, so one global cut leaves a 100%-spam test set. Each class is split at its own date: oldest 70% train, newest 30% test.",
+    "dedup_threshold": 0.8,
+    "bootstrap_resamples": 1000,
+    "positive_label": 1
+  },
+  "scoring": [
+    {
+      "model": "multinomial",
+      "experiment": "A5",
+      "defence": "none",
+      "precision": 0.9627058123388217,
+      "recall": 0.9750853928069118,
+      "f1": 0.9688560590936314,
+      "accuracy": 0.9686053531897766,
+      "fpr": 0.03789558556742592
+    },
+    {
+      "model": "multinomial",
+      "experiment": "A5",
+      "defence": "D1",
+      "precision": 0.9600952948183442,
+      "recall": 0.97166968053044,
+      "f1": 0.9658478130617135,
+      "accuracy": 0.9655866371503321,
+      "fpr": 0.040516024994960695
+    },
+    {
+      "model": "multinomial",
+      "experiment": "A6",
+      "defence": "none",
+      "precision": 0.9555765595463138,
+      "recall": 0.812537673297167,
+      "f1": 0.8782712563796287,
+      "accuracy": 0.8872006439927551,
+      "fpr": 0.03789558556742592
+    },
+    {
+      "model": "multinomial",
+      "experiment": "A6",
+      "defence": "D1",
+      "precision": 0.9600952948183442,
+      "recall": 0.97166968053044,
+      "f1": 0.9658478130617135,
+      "accuracy": 0.9655866371503321,
+      "fpr": 0.040516024994960695
+    },
+    {
+      "model": "multinomial",
+      "experiment": "A2",
+      "defence": "D2",
+      "precision": 0.9787878787878788,
+      "recall": 0.9734779987944545,
+      "f1": 0.9761257177394984,
+      "accuracy": 0.976152143288388,
+      "fpr": 0.02116508768393469
+    },
+    {
+      "model": "multinomial",
+      "experiment": "A2",
+      "defence": "D3",
+      "precision": 0.959866220735786,
+      "recall": 0.980309423347398,
+      "f1": 0.9699801192842942,
+      "accuracy": 0.9696115918695914,
+      "fpr": 0.041120741785930254
+    },
+    {
+      "model": "multinomial",
+      "experiment": "A2",
+      "defence": "D4",
+      "precision": 0.8476190476190476,
+      "recall": 0.9835242113723126,
+      "f1": 0.9105282738095238,
+      "accuracy": 0.9031998390018112,
+      "fpr": 0.17738359201773837
+    },
+    {
+      "model": "multinomial",
+      "experiment": "A3",
+      "defence": "D2",
+      "precision": 0.793713163064833,
+      "recall": 0.08117339762909383,
+      "f1": 0.14728399562522784,
+      "accuracy": 0.5292815455826122,
+      "fpr": 0.02116508768393469
+    },
+    {
+      "model": "multinomial",
+      "experiment": "A3",
+      "defence": "D3",
+      "precision": 0.9311740890688259,
+      "recall": 0.5545509342977697,
+      "f1": 0.6951265583679637,
+      "accuracy": 0.7563896156168243,
+      "fpr": 0.041120741785930254
+    },
+    {
+      "model": "multinomial",
+      "experiment": "A3",
+      "defence": "D4",
+      "precision": 0.8207739307535642,
+      "recall": 0.8097247337753667,
+      "f1": 0.8152118944067969,
+      "accuracy": 0.8161601931978265,
+      "fpr": 0.17738359201773837
+    },
+    {
+      "model": "bernoulli",
+      "experiment": "A5",
+      "defence": "none",
+      "precision": 0.9834034595605423,
+      "recall": 0.8452883263009845,
+      "f1": 0.9091301998919502,
+      "accuracy": 0.915375327027571,
+      "fpr": 0.01431163071961298
+    },
+    {
+      "model": "bernoulli",
+      "experiment": "A5",
+      "defence": "D1",
+      "precision": 0.9835022389818525,
+      "recall": 0.838456901748041,
+      "f1": 0.9052060737527116,
+      "accuracy": 0.9120547393841819,
+      "fpr": 0.01411005845595646
+    },
+    {
+      "model": "bernoulli",
+      "experiment": "A6",
+      "defence": "none",
+      "precision": 0.9175377468060395,
+      "recall": 0.15873015873015872,
+      "f1": 0.27064063035286057,
+      "accuracy": 0.571543570134836,
+      "fpr": 0.01431163071961298
+    },
+    {
+      "model": "bernoulli",
+      "experiment": "A6",
+      "defence": "D1",
+      "precision": 0.9835022389818525,
+      "recall": 0.838456901748041,
+      "f1": 0.9052060737527116,
+      "accuracy": 0.9120547393841819,
+      "fpr": 0.01411005845595646
+    },
+    {
+      "model": "bernoulli",
+      "experiment": "A2",
+      "defence": "D2",
+      "precision": 0.9838342440801457,
+      "recall": 0.8681936909785011,
+      "f1": 0.9224036716832106,
+      "accuracy": 0.9268464479774603,
+      "fpr": 0.01431163071961298
+    },
+    {
+      "model": "bernoulli",
+      "experiment": "A2",
+      "defence": "D3",
+      "precision": 0.9844545698204235,
+      "recall": 0.7379947759694595,
+      "f1": 0.8435920992191088,
+      "accuracy": 0.8629502918092171,
+      "fpr": 0.01169119129207821
+    },
+    {
+      "model": "bernoulli",
+      "experiment": "A2",
+      "defence": "D4",
+      "precision": 0.9613995485327314,
+      "recall": 0.855736387381957,
+      "f1": 0.9054959073030722,
+      "accuracy": 0.9105453813644596,
+      "fpr": 0.034468857085265064
+    },
+    {
+      "model": "bernoulli",
+      "experiment": "A3",
+      "defence": "D2",
+      "precision": 0.843956043956044,
+      "recall": 0.07715491259795057,
+      "f1": 0.14138438880706922,
+      "accuracy": 0.530690279734353,
+      "fpr": 0.01431163071961298
+    },
+    {
+      "model": "bernoulli",
+      "experiment": "A3",
+      "defence": "D3",
+      "precision": 0.9414141414141414,
+      "recall": 0.18726140245127587,
+      "f1": 0.3123847829730183,
+      "accuracy": 0.5871402696719662,
+      "fpr": 0.01169119129207821
+    },
+    {
+      "model": "bernoulli",
+      "experiment": "A3",
+      "defence": "D4",
+      "precision": 0.9531763417305587,
+      "recall": 0.6994173196704843,
+      "f1": 0.8068142310812377,
+      "accuracy": 0.8322600120748641,
+      "fpr": 0.034468857085265064
+    }
+  ],
+  "poisoning": [
+    {
+      "model": "multinomial",
+      "rate": 0.005,
+      "count": 118,
+      "precision": 0.9625647152528873,
+      "recall": 0.9712678320273257,
+      "f1": 0.9668966896689669,
+      "accuracy": 0.9666934996981283,
+      "fpr": 0.03789558556742592
+    },
+    {
+      "model": "multinomial",
+      "rate": 0.01,
+      "count": 236,
+      "precision": 0.9623730838144535,
+      "recall": 0.9712678320273257,
+      "f1": 0.9667999999999999,
+      "accuracy": 0.9665928758301469,
+      "fpr": 0.038097157831082445
+    },
+    {
+      "model": "multinomial",
+      "rate": 0.02,
+      "count": 472,
+      "precision": 0.9623880597014925,
+      "recall": 0.97166968053044,
+      "f1": 0.967006598680264,
+      "accuracy": 0.9667941235661098,
+      "fpr": 0.038097157831082445
+    },
+    {
+      "model": "multinomial",
+      "rate": 0.05,
+      "count": 1180,
+      "precision": 0.9621739996018316,
+      "recall": 0.9710669077757685,
+      "f1": 0.9665999999999999,
+      "accuracy": 0.9663916280941839,
+      "fpr": 0.03829873009473896
+    },
+    {
+      "model": "bernoulli",
+      "rate": 0.005,
+      "count": 118,
+      "precision": 0.9844677935130196,
+      "recall": 0.8659835242113723,
+      "f1": 0.9214323890967397,
+      "accuracy": 0.9260414570336084,
+      "fpr": 0.013706913928643418
+    },
+    {
+      "model": "bernoulli",
+      "rate": 0.01,
+      "count": 236,
+      "precision": 0.984622342831298,
+      "recall": 0.8748241912798875,
+      "f1": 0.9264815405894243,
+      "accuracy": 0.9304689072247937,
+      "fpr": 0.013706913928643418
+    },
+    {
+      "model": "bernoulli",
+      "rate": 0.02,
+      "count": 472,
+      "precision": 0.9847984137475215,
+      "recall": 0.8981314044605184,
+      "f1": 0.939470365699874,
+      "accuracy": 0.9420406520426645,
+      "fpr": 0.01390848619229994
+    },
+    {
+      "model": "bernoulli",
+      "rate": 0.05,
+      "count": 1180,
+      "precision": 0.9821728187919463,
+      "recall": 0.9409282700421941,
+      "f1": 0.9611082606464854,
+      "accuracy": 0.9618635540350171,
+      "fpr": 0.017133642410804274
+    }
+  ],
+  "roni": [
+    {
+      "model": "multinomial",
+      "candidates": 20,
+      "accepted": 20,
+      "rejected": 0,
+      "max_f1_drop": 0.01
+    },
+    {
+      "model": "bernoulli",
+      "candidates": 20,
+      "accepted": 20,
+      "rejected": 0,
+      "max_f1_drop": 0.01
+    }
+  ]
+}

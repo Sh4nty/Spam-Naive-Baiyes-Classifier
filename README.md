@@ -18,6 +18,7 @@ python scripts/fetch_data.py     # Enron-Spam + SpamAssassin into data/raw/ (git
 |---|---|
 | `python scripts/run_baseline.py` | `results/baseline.md`: clean P/R/F1/FPR with 95% CIs |
 | `python scripts/run_attacks.py` | `results/attacks_a1_a3.md`, `.csv`, `attacks_f1_vs_budget.png` (~7 min) |
+| `python scripts/run_m5.py` | `results/m5_integrated.md` and `.json`: A5/A6/D1, A8, and D2-D5 outputs |
 | `python scripts/prepare_a7.py` | `data/a7/a7_sample.jsonl`: 300 defanged spam for A7 (already committed) |
 | `python scripts/generate_a7.py --backend ...` | LLM rewrites; see the script's docstring for Ollama / Groq / Gemini / rule-based |
 | `python scripts/evaluate_a7.py` | `results/a7_<model>.md`: before/after P/R/F1, ASR, token attribution |
@@ -35,8 +36,9 @@ The first script run builds `data/processed/` (cached, about 30 s).
 | `metrics.py` | P/R/F1/FPR with spam positive, bootstrap CIs, `evaluate(model, docs, labels, attack)` |
 | `attacks.py` | A1 padding, A2 passive good-word, A3 white-box, analytic bound `min_good_words()` |
 | `llm_camouflage.py` | A7 defanging, prompts, rule-based fallback, evasion attribution |
+| `encoding.py` | A5 hidden HTML, A6 Unicode obfuscation, D1 input sanitisation |
 | `poisoning.py` | A8 ham-vocabulary poison generation and training-data injection |
-| `defences.py` | D5 RONI-lite candidate filtering by held-out F1 |
+| `defences.py` | D2 term-frequency caps, D3 weight clipping, D4 segment scoring, D5 RONI-lite |
 | `experiment.py` | Shared config, prepared data and victim fitting for the scripts |
 
 ## Writing an attack

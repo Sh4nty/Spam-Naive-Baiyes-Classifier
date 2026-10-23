@@ -5,7 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable, Sequence
 
+import numpy as np
+
 from spam_nb.metrics import classification_metrics
+from spam_nb.tokenizer import tokenize
 
 
 @dataclass(frozen=True)
@@ -70,3 +73,49 @@ def roni_filter(
         rejected=rejected_candidates,
         f1_deltas=f1_deltas,
     )
+
+
+def cap_term_frequency(text: str, cap: int = 1) -> str:
+    """Keep at most `cap` occurrences of each token, preserving token order."""
+    if cap < 1:
+        raise ValueError("cap must be at least 1.")
+    seen: dict[str, int] = {}
+    kept = []
+    for token in tokenize(text):
+        count = seen.get(token, 0)
+        if count < cap:
+            kept.append(token)
+            seen[token] = count + 1
+    return " ".join(kept)
+
+
+def capped_margin(model, documents: Sequence[str], cap: int = 1) -> np.ndarray:
+    """Score documents after applying D2 term-frequency capping."""
+    return model.margin([cap_term_frequency(document, cap) for document in documents])
+
+
+def clipped_margin(model, documents: Sequence[str], tau: float) -> np.ndarray:
+    """Score documents with D3 per-term weights clipped to [-tau, tau]."""
+    if tau < 0:
+        raise ValueError("tau must be non-negative.")
+    clipped = np.clip(model.weights_, -tau, tau)
+    margins = []
+    for document in documents:
+        features = model._features(document)
+        margins.append(model.bias_ + sum(clipped[index] * value for index, value in features.items()))
+    return np.asarray(margins, dtype=float)
+
+
+def segment_margin(model, documents: Sequence[str], segment_size: int = 50) -> np.ndarray:
+    """Return D4's maximum spam margin over fixed-size token segments."""
+    if segment_size < 1:
+        raise ValueError("segment_size must be at least 1.")
+    margins = []
+    for document in documents:
+        tokens = tokenize(document)
+        segments = [
+            " ".join(tokens[start:start + segment_size])
+            for start in range(0, len(tokens), segment_size)
+        ] or [""]
+        margins.append(float(np.max(model.margin(segments))))
+    return np.asarray(margins, dtype=float)
