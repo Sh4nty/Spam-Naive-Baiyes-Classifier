@@ -35,6 +35,8 @@ The first script run builds `data/processed/` (cached, about 30 s).
 | `metrics.py` | P/R/F1/FPR with spam positive, bootstrap CIs, `evaluate(model, docs, labels, attack)` |
 | `attacks.py` | A1 padding, A2 passive good-word, A3 white-box, analytic bound `min_good_words()` |
 | `llm_camouflage.py` | A7 defanging, prompts, rule-based fallback, evasion attribution |
+| `poisoning.py` | A8 ham-vocabulary poison generation and training-data injection |
+| `defences.py` | D5 RONI-lite candidate filtering by held-out F1 |
 | `experiment.py` | Shared config, prepared data and victim fitting for the scripts |
 
 ## Writing an attack

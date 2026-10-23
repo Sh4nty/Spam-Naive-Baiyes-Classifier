@@ -109,12 +109,9 @@ def passive_good_word(good_words: Sequence[str], budget: int) -> Attack:
 
 
 def _hammiest_ids(model) -> np.ndarray:
-    """Vocabulary ids with negative weight, most negative first.
-    Only alphabetic words: an attacker appends words, not numbers."""
-    order = np.argsort(model.weights_, kind="stable")
-    order = order[model.weights_[order] < 0]
-    alpha = np.array([str(model.feature_names_[i]).isalpha() for i in order], dtype=bool)
-    return order[alpha]
+    """Vocabulary ids with negative weight, most negative first."""
+    order = np.argsort(model.weights_)
+    return order[model.weights_[order] < 0]
 
 
 def _is_bernoulli(model) -> bool:
@@ -237,4 +234,6 @@ def robustness_auc(budgets: Sequence[int], f1: Sequence[float], clean_f1: float)
     y = np.asarray(f1, dtype=float) / clean_f1 if clean_f1 else np.zeros(len(budgets))
     if x[-1] == x[0]:
         return float(y[0])
-    return float(np.trapezoid(y, (x - x[0]) / (x[-1] - x[0])))
+    normalized_x = (x - x[0]) / (x[-1] - x[0])
+    trapezoid = getattr(np, "trapezoid", np.trapz)
+    return float(trapezoid(y, normalized_x))
