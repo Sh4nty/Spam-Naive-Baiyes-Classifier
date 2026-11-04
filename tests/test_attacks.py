@@ -3,6 +3,7 @@ import pytest
 
 from spam_nb.attacks import (
     breaking_point,
+    active_good_word,
     common_word_padding,
     estimate_good_words,
     min_good_words,
@@ -91,6 +92,18 @@ def test_random_padding_is_seeded():
     a = random_padding(words, 5, seed=3)(TEST_SPAM)
     assert a == random_padding(words, 5, seed=3)(TEST_SPAM)
     assert a != random_padding(words, 5, seed=4)(TEST_SPAM)
+
+
+def test_active_attack_uses_margin_queries_and_stops_at_flip():
+    queries = []
+
+    def query(text):
+        queries.append(text)
+        return -1.0 if "meeting" in text else 2.0
+
+    out = active_good_word(["office", "meeting"], query, budget=3)(["spam"])
+    assert out == ["spam\nmeeting\noffice\noffice"]
+    assert len(queries) == 6
 
 
 def test_word_frequencies_sorted_and_alphabetic():

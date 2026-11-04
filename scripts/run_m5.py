@@ -29,6 +29,7 @@ from spam_nb.encoding import (  # noqa: E402
     homoglyph_substitution,
     sanitize_text,
 )
+from spam_nb.data import temporal_split  # noqa: E402
 from spam_nb.experiment import (  # noqa: E402
     MODELS,
     RESULTS,
@@ -36,7 +37,12 @@ from spam_nb.experiment import (  # noqa: E402
     load_config,
     prepare_data,
 )
-from spam_nb.metrics import classification_metrics, evaluate  # noqa: E402
+from spam_nb.metrics import (  # noqa: E402
+    bootstrap_ci,
+    classification_metrics,
+    evaluate,
+    mcnemar_test,
+)
 from spam_nb.naive_bayes import BernoulliNB, MultinomialNB  # noqa: E402
 from spam_nb.poisoning import make_poison_messages  # noqa: E402
 
@@ -55,13 +61,17 @@ def main() -> int:
     test = data["enron_test"]
     docs, labels = test.text.tolist(), test.label.to_numpy()
     train = data["enron_train"]
+    fit_train, validation = temporal_split(train, 0.8, stratify=True)
     rows: list[dict] = []
     poisoning_rows: list[dict] = []
     roni_rows: list[dict] = []
 
     for model_name, model_class in MODELS.items():
         model = fit_victim(model_name, data, cfg)
-        clean = evaluate(model, docs, labels, n_resamples=0)["clean"]["metrics"]
+        clean_result = evaluate(
+            model, docs, labels, n_resamples=cfg["bootstrap_resamples"]
+        )
+        clean = clean_result["clean"]["metrics"]
 
         a5 = hidden_html_padding("meeting budget project office")
         a6_docs = [homoglyph_substitution(document) for document in docs]
@@ -75,8 +85,27 @@ def main() -> int:
             attacked_a6[index] = a6_docs[index]
 
         for attack_name, attacked in (("A5", attacked_a5), ("A6", attacked_a6)):
-            raw = score(model.margin(attacked), labels)
-            d1 = score(model.margin([sanitize_text(document) for document in attacked]), labels)
+            raw_margins = model.margin(attacked)
+            d1_margins = model.margin(
+                [sanitize_text(document) for document in attacked]
+            )
+            raw = score(raw_margins, labels)
+            d1 = score(d1_margins, labels)
+            raw_pred = (raw_margins > 0).astype(int)
+            d1_pred = (d1_margins > 0).astype(int)
+            raw["ci"] = bootstrap_ci(
+                labels, raw_pred, cfg["bootstrap_resamples"], seed=cfg["seed"]
+            )
+            d1["ci"] = bootstrap_ci(
+                labels, d1_pred, cfg["bootstrap_resamples"], seed=cfg["seed"]
+            )
+            raw["mcnemar_vs_d1"] = mcnemar_test(raw_pred, d1_pred, labels)
+            raw["mcnemar_vs_clean"] = mcnemar_test(
+                (model.margin(docs) > 0).astype(int), raw_pred, labels
+            )
+            d1["mcnemar_vs_clean"] = mcnemar_test(
+                (model.margin(docs) > 0).astype(int), d1_pred, labels
+            )
             rows.extend([
                 {"model": model_name, "experiment": attack_name, "defence": "none", **raw},
                 {"model": model_name, "experiment": attack_name, "defence": "D1", **d1},
@@ -88,18 +117,34 @@ def main() -> int:
         a2 = lambda messages: [message + "\n" + " ".join(good[:20]) for message in messages]
         a3 = whitebox_distinct(model, 20)
         for attack_name, attack in (("A2", a2), ("A3", a3)):
-            attack_result = evaluate(model, docs, labels, attack=attack, n_resamples=0)
+            attack_result = evaluate(
+                model, docs, labels, attack=attack,
+                n_resamples=cfg["bootstrap_resamples"],
+            )
             attacked = attack_result["attacked_documents"]
             for defence, margin_function in (
                 ("D2", lambda victim, values: capped_margin(victim, values, 1)),
                 ("D3", lambda victim, values: clipped_margin(victim, values, 1.0)),
                 ("D4", lambda victim, values: segment_margin(victim, values, 50)),
             ):
+                defended = defended_metrics(model, attacked, labels, margin_function)
+                defended_pred = (
+                    margin_function(model, attacked) > 0
+                ).astype(int)
                 rows.append({
                     "model": model_name,
                     "experiment": attack_name,
                     "defence": defence,
-                    **defended_metrics(model, attacked, labels, margin_function),
+                    **defended,
+                    "ci": bootstrap_ci(
+                        labels, defended_pred, cfg["bootstrap_resamples"],
+                        seed=cfg["seed"],
+                    ),
+                    "mcnemar_vs_clean": mcnemar_test(
+                        (model.margin(docs) > 0).astype(int),
+                        defended_pred,
+                        labels,
+                    ),
                 })
 
         for rate in (0.005, 0.01, 0.02, 0.05):
@@ -116,21 +161,42 @@ def main() -> int:
             })
 
         candidates = make_poison_messages(
-            data["attacker_ham"].text, min(20, max(1, len(train) // 100)), seed=cfg["seed"]
+            data["attacker_ham"].text,
+            min(20, max(1, len(fit_train) // 100)),
+            seed=cfg["seed"],
         )
         result = roni_filter(
-            train.text.tolist(), train.label.tolist(), candidates,
+            fit_train.text.tolist(), fit_train.label.tolist(), candidates,
             lambda candidate_docs, candidate_labels: model_class(alpha=cfg["smoothing_alpha"]).fit(
                 candidate_docs, candidate_labels
             ),
-            test.text.tolist(), test.label.tolist(), max_f1_drop=0.01,
+            validation.text.tolist(), validation.label.tolist(), max_f1_drop=0.01,
         )
+        accepted_model = model_class(alpha=cfg["smoothing_alpha"]).fit(
+            result.documents, result.labels
+        )
+        validation_before = classification_metrics(
+            validation.label,
+            model_class(alpha=cfg["smoothing_alpha"]).fit(
+                fit_train.text, fit_train.label
+            ).predict(validation.text),
+        )["f1"]
+        validation_after = classification_metrics(
+            validation.label, accepted_model.predict(validation.text)
+        )["f1"]
+        test_after = classification_metrics(
+            labels, accepted_model.predict(docs)
+        )["f1"]
         roni_rows.append({
             "model": model_name,
             "candidates": len(candidates),
             "accepted": len(result.accepted),
             "rejected": len(result.rejected),
             "max_f1_drop": 0.01,
+            "validation_f1_before": validation_before,
+            "validation_f1_after": validation_after,
+            "test_f1_after": test_after,
+            "validation_rows": len(validation),
         })
 
     RESULTS.mkdir(exist_ok=True)
@@ -147,7 +213,8 @@ def main() -> int:
         "# M5 integrated attack and defence results",
         "",
         "Enron temporal-per-class test split; spam is the positive class. "
-        "Point estimates use the configured victim models and no bootstrap resampling.",
+        "Headline metrics include percentile bootstrap CIs; RONI uses a validation "
+        "split from training and the final Enron test set only for evaluation.",
         "",
         "## A5/A6 and D1; A2/A3 and D2-D4",
         "",
@@ -155,9 +222,12 @@ def main() -> int:
         "|---|---|---|---:|---:|---:|",
     ]
     for row in rows:
+        ci = row.get("ci", {})
+        f1_ci = ci.get("f1", (None, None))
         lines.append(
             f"| {row['model']} | {row['experiment']} | {row['defence']} | "
-            f"{row['precision']:.3f} | {row['recall']:.3f} | {row['f1']:.3f} |"
+            f"{row['precision']:.3f} | {row['recall']:.3f} | {row['f1']:.3f} "
+            f"[{f1_ci[0]:.3f}, {f1_ci[1]:.3f}] |"
         )
     lines += ["", "## A8 poisoning", "", "| Model | Rate | Count | Precision | Recall | F1 |",
               "|---|---:|---:|---:|---:|---:|"]
@@ -166,12 +236,21 @@ def main() -> int:
             f"| {row['model']} | {row['rate']:.1%} | {row['count']} | "
             f"{row['precision']:.3f} | {row['recall']:.3f} | {row['f1']:.3f} |"
         )
-    lines += ["", "## D5 RONI-lite", "", "| Model | Candidates | Accepted | Rejected | Threshold |",
-              "|---|---:|---:|---:|---:|"]
+    lines += [
+        "", "## D5 RONI-lite",
+        "",
+        "RONI decisions use a validation split from the training set; the final "
+        "test set is not used for acceptance decisions.",
+        "",
+        "| Model | Candidates | Accepted | Rejected | Threshold | Validation F1 before | Validation F1 after | Test F1 after |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|",
+    ]
     for row in roni_rows:
         lines.append(
             f"| {row['model']} | {row['candidates']} | {row['accepted']} | "
-            f"{row['rejected']} | {row['max_f1_drop']:.3f} |"
+            f"{row['rejected']} | {row['max_f1_drop']:.3f} | "
+            f"{row['validation_f1_before']:.3f} | {row['validation_f1_after']:.3f} | "
+            f"{row['test_f1_after']:.3f} |"
         )
     (RESULTS / "m5_integrated.md").write_text("\n".join(lines) + "\n")
     print(f"Wrote {RESULTS / 'm5_integrated.md'}")

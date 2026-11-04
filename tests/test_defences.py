@@ -1,6 +1,12 @@
+import numpy as np
 import pytest
 
-from spam_nb.defences import roni_filter
+from spam_nb.defences import (
+    attack_aware_retrain,
+    certified_accuracy,
+    certified_radius,
+    roni_filter,
+)
 
 
 class ToyModel:
@@ -40,3 +46,34 @@ def test_roni_validates_lengths_and_threshold():
         roni_filter([], [], [], fit_toy_model, ["a"], [],)
     with pytest.raises(ValueError):
         roni_filter([], [], [], fit_toy_model, [], [], max_f1_drop=-0.1)
+
+
+def test_attack_aware_retraining_adds_attacked_spam_each_round():
+    result = attack_aware_retrain(
+        ["ham", "spam"],
+        [0, 1],
+        lambda documents, labels: (list(documents), list(labels)),
+        lambda messages: [message + " padding" for message in messages],
+        rounds=2,
+    )
+    assert len(result.models) == 2
+    assert result.documents == [
+        "ham", "spam", "spam padding", "spam padding", "spam padding padding"
+    ]
+    assert result.labels == [0, 1, 1, 1, 1]
+
+
+def test_certified_radius_and_accuracy():
+    class Model:
+        weights_ = np.array([-2.0, 1.0])
+        bias_ = 3.0
+
+        def _features(self, document):
+            return {0: 1} if document == "spam" else {}
+
+    model = Model()
+    assert certified_radius(model, ["spam", "ham"], tau=1).tolist() == [2, 3]
+    assert certified_accuracy(model, ["spam", "ham"], [1, 1], tau=1, radius=0) == 1.0
+
+    with pytest.raises(ValueError):
+        certified_radius(model, ["spam"], tau=0)

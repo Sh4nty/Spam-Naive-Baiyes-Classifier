@@ -6,6 +6,7 @@ from spam_nb.metrics import (
     classification_metrics,
     confusion,
     evaluate,
+    mcnemar_test,
 )
 from spam_nb.naive_bayes import BernoulliNB, MultinomialNB
 
@@ -50,6 +51,15 @@ def test_invalid_labels_rejected():
         classification_metrics([1, 2], [1, 0])
     with pytest.raises(ValueError):
         classification_metrics([1, 0, 1], [1, 0])
+
+
+def test_mcnemar_exact_test_counts_discordant_pairs():
+    result = mcnemar_test(
+        [1, 1, 0, 0],
+        [1, 0, 0, 1],
+        [1, 0, 1, 0],
+    )
+    assert result == {"b": 1, "c": 1, "discordant": 2, "p_value": 1.0}
 
 
 # ----------------------------------------------------------------------------

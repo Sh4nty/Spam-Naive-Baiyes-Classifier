@@ -103,6 +103,62 @@ def passive_good_word(good_words: Sequence[str], budget: int) -> Attack:
     return lambda messages: [_append(m, words) for m in messages]
 
 
+def active_good_word(
+    candidate_words: Sequence[str],
+    query: Callable[[str], int | float],
+    budget: int,
+    max_queries: int | None = None,
+) -> Attack:
+    """A4: choose padding words using black-box label or margin queries.
+
+    ``query`` may return a binary label (0 means ham) or a numeric spam
+    margin, with lower values preferred.  Candidates are tested one at a
+    time and the best observed candidate is retained for each message.  The
+    procedure stops early when a query returns ham, or when ``budget`` words
+    have been selected.  This keeps the attack useful for both a label-only
+    filter and the margin oracle used in experiments.
+    """
+    words = [str(word) for word in candidate_words if str(word)]
+    if budget < 0:
+        raise ValueError("budget must be non-negative.")
+    if max_queries is not None and max_queries < 1:
+        raise ValueError("max_queries must be positive when provided.")
+
+    def attack(messages: list[str]) -> list[str]:
+        output = []
+        for message in messages:
+            current = message
+            queries = 0
+            for _ in range(budget):
+                best_text = None
+                best_value = None
+                for word in words:
+                    if max_queries is not None and queries >= max_queries:
+                        break
+                    candidate = _append(current, [word])
+                    value = query(candidate)
+                    queries += 1
+                    if isinstance(value, (bool, np.bool_, int, np.integer)):
+                        if int(value) == 0:
+                            best_text = candidate
+                            break
+                        score = 1
+                    else:
+                        score = float(value)
+                    if best_value is None or score < best_value:
+                        best_value = score
+                        best_text = candidate
+                if best_text is None:
+                    break
+                current = best_text
+                if isinstance(value, (bool, np.bool_, int, np.integer)) and int(value) == 0:
+                    break
+            output.append(current)
+        return output
+
+    return attack
+
+
 # ----------------------------------------------------------------------------
 # A3: white-box good-word attack
 # ----------------------------------------------------------------------------

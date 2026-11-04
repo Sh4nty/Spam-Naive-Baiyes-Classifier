@@ -22,6 +22,73 @@ class RoniResult:
     f1_deltas: list[float]
 
 
+@dataclass(frozen=True)
+class RetrainingResult:
+    """Models and data retained after each attack-aware retraining round."""
+
+    models: list[object]
+    documents: list[str]
+    labels: list[int]
+
+
+def attack_aware_retrain(
+    documents: Sequence[str],
+    labels: Sequence[int],
+    fit_model: Callable[[Sequence[str], Sequence[int]], object],
+    attack: Callable[[list[str]], list[str]],
+    rounds: int = 1,
+) -> RetrainingResult:
+    """Run D6: retrain on each round's attacked training messages.
+
+    The attack is applied to spam messages only and must preserve the number
+    of messages.  Each round fits a model, attacks the current spam subset,
+    and adds those attacked samples with their original spam label.
+    """
+    if len(documents) != len(labels):
+        raise ValueError("Documents and labels must have equal lengths.")
+    if rounds < 1:
+        raise ValueError("rounds must be at least 1.")
+    current_documents = list(documents)
+    current_labels = list(labels)
+    models = []
+    for _ in range(rounds):
+        model = fit_model(current_documents, current_labels)
+        models.append(model)
+        spam_indices = [i for i, label in enumerate(current_labels) if label == 1]
+        attacked = list(attack([current_documents[i] for i in spam_indices]))
+        if len(attacked) != len(spam_indices):
+            raise ValueError("Attack must preserve the number of messages.")
+        current_documents.extend(attacked)
+        current_labels.extend([1] * len(attacked))
+    return RetrainingResult(models, current_documents, current_labels)
+
+
+def certified_radius(model, documents: Sequence[str], tau: float) -> np.ndarray:
+    """Return D3's token-edit lower bound for each document.
+
+    A clipped margin changes by at most ``tau`` per insertion or deletion.
+    The guarantee applies to either predicted class, so both positive and
+    negative margins contribute their absolute distance from the decision
+    boundary.
+    """
+    if tau <= 0:
+        raise ValueError("tau must be positive.")
+    margins = clipped_margin(model, documents, tau)
+    return np.ceil(np.abs(margins) / tau).astype(int)
+
+
+def certified_accuracy(model, documents: Sequence[str], labels: Sequence[int], tau: float, radius: int) -> float:
+    """Fraction of correctly classified documents certified for ``radius`` edits."""
+    if radius < 0:
+        raise ValueError("radius must be non-negative.")
+    if len(documents) != len(labels):
+        raise ValueError("Documents and labels must have equal lengths.")
+    predictions = (clipped_margin(model, documents, tau) > 0).astype(int)
+    certified = certified_radius(model, documents, tau) > radius
+    correct = predictions == np.asarray(labels, dtype=int)
+    return float(np.mean(correct & certified)) if documents else 0.0
+
+
 def roni_filter(
     documents: Sequence[str],
     labels: Sequence[int],

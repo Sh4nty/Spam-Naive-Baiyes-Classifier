@@ -1,6 +1,6 @@
 # A7 LLM camouflage: rule / rule-based-v1
 
-Source: `data/a7/generations_rule-rule-based-v1.jsonl` (prompt v1, temperature 0.7). Test set: 4,961 Enron test ham + 300 sampled spam that both victims flag when clean (defanged, so the 'before' column already includes any effect of defanging). Refused rewrites keep the original message.
+Source: `data\a7\generations_rule-rule-based-v1.jsonl` (prompt v1, temperature 0.7). Test set: 4,961 Enron test ham + 300 sampled spam that both victims flag when clean (defanged, so the 'before' column already includes any effect of defanging). Refused rewrites keep the original message.
 
 ## Variant: paraphrase
 

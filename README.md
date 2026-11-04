@@ -19,11 +19,23 @@ python scripts/fetch_data.py     # Enron-Spam + SpamAssassin into data/raw/ (git
 | `python scripts/run_baseline.py` | `results/baseline.md`: clean P/R/F1/FPR with 95% CIs |
 | `python scripts/run_attacks.py` | `results/attacks_a1_a3.md`, `.csv`, `attacks_f1_vs_budget.png` (~7 min) |
 | `python scripts/run_m5.py` | `results/m5_integrated.md` and `.json`: A5/A6/D1, A8, and D2-D5 outputs |
+| `python scripts/run_extended_experiments.py` | `results/extended_experiments.md` and `.json`: A4, D6, S2, and feature-selection grid |
 | `python scripts/prepare_a7.py` | `data/a7/a7_sample.jsonl`: 300 defanged spam for A7 (already committed) |
 | `python scripts/generate_a7.py --backend ...` | LLM rewrites; see the script's docstring for Ollama / Groq / Gemini / rule-based |
 | `python scripts/evaluate_a7.py` | `results/a7_<model>.md`: before/after P/R/F1, ASR, token attribution |
 
 The first script run builds `data/processed/` (cached, about 30 s).
+
+To reproduce every experiment supported by the checked-in corpora:
+
+```
+python scripts/reproduce.py
+```
+
+The same command is available as `make reproduce` on systems with GNU Make.
+Fresh-100 and Reuters-21578 are not included in this repository snapshot; the
+data provenance and requirements for adding them are documented in
+[`docs/dataset_datasheet.md`](docs/dataset_datasheet.md).
 
 ## Code map (`src/spam_nb/`)
 
@@ -34,12 +46,17 @@ The first script run builds `data/processed/` (cached, about 30 s).
 | `features.py` | Frequency, mutual information and chi-square selection (IIR section 13.5) |
 | `data.py` | Enron and SpamAssassin loaders, temporal split, near-duplicate removal |
 | `metrics.py` | P/R/F1/FPR with spam positive, bootstrap CIs, `evaluate(model, docs, labels, attack)` |
-| `attacks.py` | A1 padding, A2 passive good-word, A3 white-box, analytic bound `min_good_words()` |
+| `attacks.py` | A1 padding, A2 passive good-word, A3 white-box, A4 active querying, analytic bound `min_good_words()` |
 | `llm_camouflage.py` | A7 defanging, prompts, rule-based fallback, evasion attribution |
 | `encoding.py` | A5 hidden HTML, A6 Unicode obfuscation, D1 input sanitisation |
 | `poisoning.py` | A8 ham-vocabulary poison generation and training-data injection |
-| `defences.py` | D2 term-frequency caps, D3 weight clipping, D4 segment scoring, D5 RONI-lite |
+| `defences.py` | D2 term-frequency caps, D3 weight clipping and certified radius, D4 segment scoring, D5 RONI-lite, D6 attack-aware retraining |
 | `experiment.py` | Shared config, prepared data and victim fitting for the scripts |
+
+Optional binary corpora can be evaluated without changing the victim training
+data using `python scripts/evaluate_optional_corpus.py path/to/corpus.csv`.
+The required columns are `text`, `label`, and `timestamp`; column names can
+be overridden with command-line options.
 
 ## Writing an attack
 

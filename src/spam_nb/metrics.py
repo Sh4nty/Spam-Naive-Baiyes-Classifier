@@ -8,6 +8,7 @@ all three are always reported.
 
 from __future__ import annotations
 
+from math import comb
 from typing import Callable, Sequence
 
 import numpy as np
@@ -22,6 +23,31 @@ METRIC_NAMES = ("precision", "recall", "f1", "accuracy", "fpr")
 
 # Max resample-x-document cells held in memory at once during bootstrapping.
 BOOTSTRAP_CHUNK_CELLS = 20_000_000
+
+
+def mcnemar_test(y_before, y_after, y_true) -> dict[str, float | int]:
+    """Exact two-sided McNemar test for paired before/after predictions.
+
+    The test uses only discordant pairs: b is correct before/wrong after and
+    c is wrong before/correct after.  The returned p-value is the exact
+    binomial probability under b ~ Binomial(b + c, 0.5).
+    """
+    truth = _as_binary(y_true, "y_true")
+    before = _as_binary(y_before, "y_before")
+    after = _as_binary(y_after, "y_after")
+    if truth.shape != before.shape or truth.shape != after.shape:
+        raise ValueError("All McNemar inputs must have equal lengths.")
+    before_correct = before == truth
+    after_correct = after == truth
+    b = int(np.sum(before_correct & ~after_correct))
+    c = int(np.sum(~before_correct & after_correct))
+    n = b + c
+    if n == 0:
+        p_value = 1.0
+    else:
+        tail = sum(comb(n, k) for k in range(0, min(b, c) + 1)) / (2 ** n)
+        p_value = min(1.0, 2.0 * tail)
+    return {"b": b, "c": c, "discordant": n, "p_value": float(p_value)}
 
 
 def _as_binary(values, name: str) -> np.ndarray:

@@ -1,0 +1,312 @@
+{
+  "a4": [
+    {
+      "model": "multinomial",
+      "budget": 20,
+      "max_queries": 100,
+      "queries": 497700,
+      "asr": 0.014687629292511377,
+      "f1": 0.9595084609186141,
+      "recall": 0.9570022101667671
+    },
+    {
+      "model": "bernoulli",
+      "budget": 20,
+      "max_queries": 100,
+      "queries": 497700,
+      "asr": 0.04372223521159691,
+      "f1": 0.895163055373167,
+      "recall": 0.8217801888687964
+    }
+  ],
+  "d6": [
+    {
+      "model": "multinomial",
+      "rounds": 2,
+      "training_rows_after": 59657,
+      "final_f1": 0.9667131752043054
+    },
+    {
+      "model": "bernoulli",
+      "rounds": 2,
+      "training_rows_after": 59657,
+      "final_f1": 0.9324152542372881
+    }
+  ],
+  "s2": [
+    {
+      "model": "multinomial",
+      "tau": 0.25,
+      "radius_median": 30.0,
+      "accuracy_r0": 0.952706782048702,
+      "accuracy_r1": 0.9453612396860536,
+      "accuracy_r5": 0.8951499295632924
+    },
+    {
+      "model": "multinomial",
+      "tau": 0.5,
+      "radius_median": 28.0,
+      "accuracy_r0": 0.956429865164017,
+      "accuracy_r1": 0.9502918092171463,
+      "accuracy_r5": 0.904809820889515
+    },
+    {
+      "model": "multinomial",
+      "tau": 1.0,
+      "radius_median": 25.0,
+      "accuracy_r0": 0.9612598108271282,
+      "accuracy_r1": 0.9541155162004428,
+      "accuracy_r5": 0.9077279130609781
+    },
+    {
+      "model": "multinomial",
+      "tau": 2.0,
+      "radius_median": 20.0,
+      "accuracy_r0": 0.9640772791306098,
+      "accuracy_r1": 0.9543167639364057,
+      "accuracy_r5": 0.8891124974844034
+    },
+    {
+      "model": "bernoulli",
+      "tau": 0.25,
+      "radius_median": 46.0,
+      "accuracy_r0": 0.5704367075870397,
+      "accuracy_r1": 0.5681223586234655,
+      "accuracy_r5": 0.5571543570134836
+    },
+    {
+      "model": "bernoulli",
+      "tau": 0.5,
+      "radius_median": 28.0,
+      "accuracy_r0": 0.693902193600322,
+      "accuracy_r1": 0.6860535318977662,
+      "accuracy_r5": 0.6433890118736164
+    },
+    {
+      "model": "bernoulli",
+      "tau": 1.0,
+      "radius_median": 19.0,
+      "accuracy_r0": 0.8260213322600121,
+      "accuracy_r1": 0.8095190179110485,
+      "accuracy_r5": 0.7445159991950091
+    },
+    {
+      "model": "bernoulli",
+      "tau": 2.0,
+      "radius_median": 15.0,
+      "accuracy_r0": 0.8969611591869592,
+      "accuracy_r1": 0.8784463674783659,
+      "accuracy_r5": 0.799054135640974
+    }
+  ],
+  "feature_grid": [
+    {
+      "model": "multinomial",
+      "selector": "none",
+      "k": "all",
+      "clean_f1": 0.9668966896689669,
+      "attack_f1": 0.24020442930153324,
+      "asr": 0.8541580471659082
+    },
+    {
+      "model": "multinomial",
+      "selector": "frequency",
+      "k": 25,
+      "clean_f1": 0.7227760015046077,
+      "attack_f1": 0.25916431684183544,
+      "asr": 0.7369242779078845
+    },
+    {
+      "model": "multinomial",
+      "selector": "frequency",
+      "k": 100,
+      "clean_f1": 0.8156339692723282,
+      "attack_f1": 0.059474412171507604,
+      "asr": 0.9554957565721383
+    },
+    {
+      "model": "multinomial",
+      "selector": "frequency",
+      "k": 300,
+      "clean_f1": 0.9048958919527293,
+      "attack_f1": 0.06175298804780876,
+      "asr": 0.9614427860696517
+    },
+    {
+      "model": "multinomial",
+      "selector": "frequency",
+      "k": 1000,
+      "clean_f1": 0.959288537549407,
+      "attack_f1": 0.09375565610859729,
+      "asr": 0.9466419447878038
+    },
+    {
+      "model": "multinomial",
+      "selector": "mi",
+      "k": 25,
+      "clean_f1": 0.8196434813002446,
+      "attack_f1": 0.002956830277942046,
+      "asr": 0.997867803837953
+    },
+    {
+      "model": "multinomial",
+      "selector": "mi",
+      "k": 100,
+      "clean_f1": 0.8784640463684116,
+      "attack_f1": 0.018242918867018725,
+      "asr": 0.9882474226804123
+    },
+    {
+      "model": "multinomial",
+      "selector": "mi",
+      "k": 300,
+      "clean_f1": 0.9363784665579119,
+      "attack_f1": 0.07536030560861261,
+      "asr": 0.9555236728837877
+    },
+    {
+      "model": "multinomial",
+      "selector": "mi",
+      "k": 1000,
+      "clean_f1": 0.9606018610176201,
+      "attack_f1": 0.16785901238876288,
+      "asr": 0.9008656224237428
+    },
+    {
+      "model": "multinomial",
+      "selector": "chi2",
+      "k": 25,
+      "clean_f1": 0.821964821964822,
+      "attack_f1": 0.002909090909090909,
+      "asr": 0.9979123173277662
+    },
+    {
+      "model": "multinomial",
+      "selector": "chi2",
+      "k": 100,
+      "clean_f1": 0.8765620785759237,
+      "attack_f1": 0.01808088818398097,
+      "asr": 0.9883076923076923
+    },
+    {
+      "model": "multinomial",
+      "selector": "chi2",
+      "k": 300,
+      "clean_f1": 0.9380956965437567,
+      "attack_f1": 0.07705718270571828,
+      "asr": 0.9546387520525451
+    },
+    {
+      "model": "multinomial",
+      "selector": "chi2",
+      "k": 1000,
+      "clean_f1": 0.9606174549772413,
+      "attack_f1": 0.17416999826177645,
+      "asr": 0.8967861557478368
+    },
+    {
+      "model": "bernoulli",
+      "selector": "none",
+      "k": "all",
+      "clean_f1": 0.917319034852547,
+      "attack_f1": 0.14138438880706922,
+      "asr": 0.9102174421323358
+    },
+    {
+      "model": "bernoulli",
+      "selector": "frequency",
+      "k": 25,
+      "clean_f1": 0.6107002209201806,
+      "attack_f1": 0.0,
+      "asr": 1.0
+    },
+    {
+      "model": "bernoulli",
+      "selector": "frequency",
+      "k": 100,
+      "clean_f1": 0.7748627211714461,
+      "attack_f1": 0.0,
+      "asr": 1.0
+    },
+    {
+      "model": "bernoulli",
+      "selector": "frequency",
+      "k": 300,
+      "clean_f1": 0.8263823200619141,
+      "attack_f1": 0.0,
+      "asr": 1.0
+    },
+    {
+      "model": "bernoulli",
+      "selector": "frequency",
+      "k": 1000,
+      "clean_f1": 0.8791384834460662,
+      "attack_f1": 0.02229899497487437,
+      "asr": 0.9856246203684956
+    },
+    {
+      "model": "bernoulli",
+      "selector": "mi",
+      "k": 25,
+      "clean_f1": 0.8143993302637088,
+      "attack_f1": 0.0,
+      "asr": 1.0
+    },
+    {
+      "model": "bernoulli",
+      "selector": "mi",
+      "k": 100,
+      "clean_f1": 0.8460547780544347,
+      "attack_f1": 0.0,
+      "asr": 1.0
+    },
+    {
+      "model": "bernoulli",
+      "selector": "mi",
+      "k": 300,
+      "clean_f1": 0.8790701801082424,
+      "attack_f1": 0.01819607843137255,
+      "asr": 0.988292289059346
+    },
+    {
+      "model": "bernoulli",
+      "selector": "mi",
+      "k": 1000,
+      "clean_f1": 0.9096457967261629,
+      "attack_f1": 0.04930509596293844,
+      "asr": 0.969703131354209
+    },
+    {
+      "model": "bernoulli",
+      "selector": "chi2",
+      "k": 25,
+      "clean_f1": 0.8085425878034538,
+      "attack_f1": 0.0,
+      "asr": 1.0
+    },
+    {
+      "model": "bernoulli",
+      "selector": "chi2",
+      "k": 100,
+      "clean_f1": 0.8442511088365745,
+      "attack_f1": 0.0,
+      "asr": 1.0
+    },
+    {
+      "model": "bernoulli",
+      "selector": "chi2",
+      "k": 300,
+      "clean_f1": 0.876872617675738,
+      "attack_f1": 0.017524644030668127,
+      "asr": 0.9886777193691872
+    },
+    {
+      "model": "bernoulli",
+      "selector": "chi2",
+      "k": 1000,
+      "clean_f1": 0.909460083064144,
+      "attack_f1": 0.050165016501650166,
+      "asr": 0.9691495839253095
+    }
+  ]
+}
