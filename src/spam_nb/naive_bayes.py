@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from collections import Counter
 from itertools import chain
-from typing import Iterable
+from typing import Sequence
 
 import numpy as np
 import pandas as pd
@@ -40,10 +40,16 @@ class BaseNaiveBayes:
         selector: str | None = None,
         k: int | None = None,
     ):
-        if alpha <= 0:
+        if not np.isfinite(alpha) or alpha <= 0:
             raise ValueError("alpha must be positive.")
         if (selector is None) != (k is None):
             raise ValueError("Give both selector and k, or neither.")
+        if selector is not None and selector not in {"frequency", "mi", "chi2"}:
+            raise ValueError(
+                f"Unknown selector {selector!r}; choose from frequency, mi, chi2."
+            )
+        if k is not None and (isinstance(k, bool) or int(k) != k or k < 1):
+            raise ValueError("k must be a positive integer.")
 
         self.alpha = float(alpha)
         self.selector = selector
@@ -96,9 +102,12 @@ class BaseNaiveBayes:
     # Fitting
     # ------------------------------------------------------------------
 
-    def fit(self, documents, labels):
+    def fit(self, documents: Sequence[str], labels: Sequence[int]):
         docs = list(documents)
-        y = np.asarray(list(labels), dtype=int)
+        try:
+            y = np.asarray(list(labels), dtype=int)
+        except (TypeError, ValueError) as error:
+            raise ValueError("Labels must be integers 0 (ham) or 1 (spam).") from error
 
         if len(docs) == 0:
             raise ValueError("Training data cannot be empty.")
@@ -108,6 +117,8 @@ class BaseNaiveBayes:
 
         if not np.isin(y, [0, 1]).all():
             raise ValueError("Labels must be 0 (ham) or 1 (spam).")
+        if any(document is None for document in docs):
+            raise ValueError("Training documents cannot contain None.")
 
         class_counts = np.bincount(y, minlength=2)
         if np.any(class_counts == 0):
@@ -126,7 +137,7 @@ class BaseNaiveBayes:
 
         if self.selector is not None:
             self.term_scores_ = score_terms(self.selector, doc_freq, class_counts)
-            keep = select_top_k(self.term_scores_, min(self.k, len(vocab)))
+            keep = select_top_k(self.term_scores_, min(int(self.k), len(vocab)))
             remap = np.full(len(vocab), -1, dtype=np.int64)
             remap[keep] = np.arange(len(keep))
             codes = remap[codes]
@@ -172,6 +183,7 @@ class BaseNaiveBayes:
     def joint_log_likelihood(self, documents) -> np.ndarray:
         """Unnormalised log P(c, d), shape (n_docs, 2), columns [ham, spam]."""
         self._check_fitted()
+        documents = list(documents)
         doc_idx, ids, values, n = self._design(documents)
         scores = np.tile(self._base_, (n, 1))
         for c in (0, 1):
@@ -186,6 +198,7 @@ class BaseNaiveBayes:
     def margin(self, documents) -> np.ndarray:
         """Spam margin S(d) for each document; positive means spam."""
         self._check_fitted()
+        documents = list(documents)
         doc_idx, ids, values, n = self._design(documents)
         return self.bias_ + np.bincount(
             doc_idx, weights=values * self.weights_[ids], minlength=n
@@ -214,7 +227,10 @@ class BaseNaiveBayes:
 
     def predict_log_proba(self, documents) -> np.ndarray:
         """Return normalized log probabilities, columns [ham, spam]."""
+        documents = list(documents)
         scores = self.joint_log_likelihood(documents)
+        if not len(scores):
+            return scores.copy()
 
         # Numerically stable log-sum-exp normalization.
         max_score = scores.max(axis=1, keepdims=True)
@@ -231,11 +247,14 @@ class BaseNaiveBayes:
         return self.joint_log_likelihood(documents).argmax(axis=1)
 
     def score(self, documents, labels) -> float:
+        documents = list(documents)
         y = np.asarray(list(labels), dtype=int)
         predictions = self.predict(documents)
 
         if len(y) != len(predictions):
             raise ValueError("Documents and labels must have equal lengths.")
+        if len(y) == 0:
+            raise ValueError("Cannot score an empty dataset.")
 
         return float(np.mean(predictions == y))
 

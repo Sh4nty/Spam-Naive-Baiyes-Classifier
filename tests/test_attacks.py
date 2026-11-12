@@ -94,6 +94,11 @@ def test_random_padding_is_seeded():
     assert a != random_padding(words, 5, seed=4)(TEST_SPAM)
 
 
+def test_random_padding_rejects_empty_pool_for_positive_budget():
+    with pytest.raises(ValueError):
+        random_padding([], 1)
+
+
 def test_active_attack_uses_margin_queries_and_stops_at_flip():
     queries = []
 

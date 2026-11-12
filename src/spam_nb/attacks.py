@@ -49,6 +49,10 @@ def word_frequencies(texts: Iterable[str], min_count: int = 1) -> tuple[list[str
 def random_padding(pool: Sequence[str], budget: int, seed: int = 0) -> Attack:
     """A1a: append `budget` words drawn uniformly at random from `pool`."""
     pool = list(pool)
+    if budget < 0:
+        raise ValueError("budget must be non-negative.")
+    if budget and not pool:
+        raise ValueError("pool must not be empty when budget is positive.")
 
     def attack(messages: list[str]) -> list[str]:
         rng = np.random.default_rng(seed)
@@ -62,6 +66,8 @@ def random_padding(pool: Sequence[str], budget: int, seed: int = 0) -> Attack:
 
 def common_word_padding(ranked_words: Sequence[str], budget: int) -> Attack:
     """A1b: append the `budget` most frequent words of a generic corpus."""
+    if budget < 0:
+        raise ValueError("budget must be non-negative.")
     words = list(ranked_words[:budget])
     return lambda messages: [_append(m, words) for m in messages]
 
@@ -99,6 +105,8 @@ def estimate_good_words(
 
 def passive_good_word(good_words: Sequence[str], budget: int) -> Attack:
     """A2: append the attacker's top-`budget` estimated good words."""
+    if budget < 0:
+        raise ValueError("budget must be non-negative.")
     words = list(good_words[:budget])
     return lambda messages: [_append(m, words) for m in messages]
 
@@ -180,6 +188,8 @@ def whitebox_distinct(model, budget: int) -> Attack:
     For Bernoulli NB a word already in the message contributes nothing new,
     so it is skipped and the next hammy word is used instead.
     """
+    if budget < 0:
+        raise ValueError("budget must be non-negative.")
     ranked = _hammiest_ids(model)
     names = model.feature_names_
     bernoulli = _is_bernoulli(model)
@@ -211,7 +221,14 @@ def whitebox_repeat(model, budget: int) -> Attack:
 
     Effective against multinomial NB only; Bernoulli ignores repetition.
     """
-    word = str(model.feature_names_[_hammiest_ids(model)[0]])
+    if budget < 0:
+        raise ValueError("budget must be non-negative.")
+    ranked = _hammiest_ids(model)
+    if budget and not len(ranked):
+        raise ValueError("Model has no hammy vocabulary terms.")
+    if not len(ranked):
+        return lambda messages: list(messages)
+    word = str(model.feature_names_[ranked[0]])
     return lambda messages: [_append(m, [word] * budget) for m in messages]
 
 

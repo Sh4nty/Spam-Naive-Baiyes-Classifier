@@ -22,6 +22,8 @@ from __future__ import annotations
 
 import json
 import pickle
+import os
+import tempfile
 from pathlib import Path
 
 import pandas as pd
@@ -43,8 +45,25 @@ MODELS = {"multinomial": MultinomialNB, "bernoulli": BernoulliNB}
 
 
 def load_config(path: str | Path | None = None) -> dict:
-    with open(path or ROOT / "config" / "seed.json") as fh:
-        return json.load(fh)
+    config_path = Path(path or ROOT / "config" / "seed.json")
+    try:
+        with config_path.open(encoding="utf-8") as fh:
+            cfg = json.load(fh)
+    except (OSError, json.JSONDecodeError) as error:
+        raise ValueError(f"Unable to read configuration: {config_path}") from error
+    required = {"seed", "train_fraction", "smoothing_alpha", "split_strategy"}
+    missing = required - set(cfg)
+    if missing:
+        raise ValueError(f"Configuration missing keys: {sorted(missing)}")
+    if not isinstance(cfg["seed"], int) or isinstance(cfg["seed"], bool):
+        raise ValueError("seed must be an integer.")
+    if not 0 < float(cfg["train_fraction"]) < 1:
+        raise ValueError("train_fraction must be between 0 and 1.")
+    if float(cfg["smoothing_alpha"]) <= 0:
+        raise ValueError("smoothing_alpha must be positive.")
+    if cfg["split_strategy"] not in {"temporal", "temporal_per_class"}:
+        raise ValueError("Unsupported split_strategy.")
+    return cfg
 
 
 def _cache_key(cfg: dict) -> str:
@@ -60,8 +79,14 @@ def prepare_data(cfg: dict | None = None, use_cache: bool = True) -> dict:
     cfg = cfg or load_config()
     cache = PROCESSED / _cache_key(cfg)
     if use_cache and cache.exists():
-        with open(cache, "rb") as fh:
-            return pickle.load(fh)
+        try:
+            with open(cache, "rb") as fh:
+                cached = pickle.load(fh)
+            if {"enron_train", "enron_test", "sa_test", "dedup"} <= set(cached):
+                return cached
+        except (OSError, EOFError, pickle.UnpicklingError, ValueError, KeyError):
+            # A partial or stale cache is rebuilt from the source corpora.
+            pass
 
     enron_path = RAW / "enron_spam_data.zip"
     sa_path = RAW / "spamassassin"
@@ -93,8 +118,17 @@ def prepare_data(cfg: dict | None = None, use_cache: bool = True) -> dict:
         },
     }
     PROCESSED.mkdir(parents=True, exist_ok=True)
-    with open(cache, "wb") as fh:
-        pickle.dump(data, fh)
+    fd, temporary = tempfile.mkstemp(prefix=cache.stem, suffix=".tmp", dir=cache.parent)
+    try:
+        with os.fdopen(fd, "wb") as fh:
+            pickle.dump(data, fh, protocol=pickle.HIGHEST_PROTOCOL)
+        os.replace(temporary, cache)
+    except (OSError, pickle.PicklingError):
+        try:
+            os.unlink(temporary)
+        except OSError:
+            pass
+        raise
     return data
 
 

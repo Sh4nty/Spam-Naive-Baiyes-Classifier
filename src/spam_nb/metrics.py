@@ -102,6 +102,8 @@ def classification_metrics(y_true, y_pred) -> dict[str, float]:
     if nothing is predicted as spam, precision, recall and F1 are all 0.
     """
     c = confusion(y_true, y_pred)
+    if sum(c.values()) == 0:
+        raise ValueError("Cannot evaluate an empty dataset.")
     m = _metrics_from_counts(c["tp"], c["fp"], c["tn"], c["fn"])
     return {name: float(value) for name, value in m.items()}
 
@@ -126,6 +128,10 @@ def bootstrap_ci(
         raise ValueError("Cannot bootstrap an empty test set.")
     if not 0.0 < confidence < 1.0:
         raise ValueError("confidence must be between 0 and 1.")
+    if isinstance(n_resamples, bool) or n_resamples < 1:
+        raise ValueError("n_resamples must be a positive integer.")
+    if int(n_resamples) != n_resamples:
+        raise ValueError("n_resamples must be a positive integer.")
 
     rng = np.random.default_rng(seed)
     n = len(t)

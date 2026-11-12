@@ -37,12 +37,15 @@ def attack_aware_retrain(
     fit_model: Callable[[Sequence[str], Sequence[int]], object],
     attack: Callable[[list[str]], list[str]],
     rounds: int = 1,
+    attack_factory: Callable[[object], Callable[[list[str]], list[str]]] | None = None,
 ) -> RetrainingResult:
     """Run D6: retrain on each round's attacked training messages.
 
     The attack is applied to spam messages only and must preserve the number
-    of messages.  Each round fits a model, attacks the current spam subset,
-    and adds those attacked samples with their original spam label.
+    of messages. Each round fits a model, attacks the current spam subset,
+    and adds those attacked samples with their original spam label. When
+    ``attack_factory`` is supplied, it rebuilds the attack against the model
+    fitted in that round, preventing a stale white-box attacker.
     """
     if len(documents) != len(labels):
         raise ValueError("Documents and labels must have equal lengths.")
@@ -55,7 +58,8 @@ def attack_aware_retrain(
         model = fit_model(current_documents, current_labels)
         models.append(model)
         spam_indices = [i for i, label in enumerate(current_labels) if label == 1]
-        attacked = list(attack([current_documents[i] for i in spam_indices]))
+        round_attack = attack_factory(model) if attack_factory is not None else attack
+        attacked = list(round_attack([current_documents[i] for i in spam_indices]))
         if len(attacked) != len(spam_indices):
             raise ValueError("Attack must preserve the number of messages.")
         current_documents.extend(attacked)

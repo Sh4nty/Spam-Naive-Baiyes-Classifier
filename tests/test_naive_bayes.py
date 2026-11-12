@@ -98,3 +98,18 @@ def test_bernoulli_counts_presence_not_frequency():
     # Both spam documents contain "offer"; repetitions count only once.
     assert model.feature_prob_[1, offer_idx] == pytest.approx(3 / 4)
 
+
+@pytest.mark.parametrize("model_class", [MultinomialNB, BernoulliNB])
+def test_empty_prediction_is_shape_stable(model_class, training_data):
+    model = model_class().fit(*training_data)
+    assert model.predict([]).shape == (0,)
+    assert model.predict_proba([]).shape == (0, 2)
+
+
+def test_invalid_model_configuration_is_rejected():
+    with pytest.raises(ValueError):
+        MultinomialNB(alpha=0)
+    with pytest.raises(ValueError):
+        MultinomialNB(selector="unknown", k=2)
+    with pytest.raises(ValueError):
+        MultinomialNB(selector="mi", k=0)

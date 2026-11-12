@@ -4,17 +4,19 @@ All results use the prepared Enron temporal-per-class split. A4, D6, S2 and the 
 
 ## A4 active black-box attack
 
-| Model | Queries | ASR | Recall | F1 |
-|---|---:|---:|---:|---:|
-| multinomial | 497700 | 0.015 | 0.957 | 0.960 |
-| bernoulli | 497700 | 0.044 | 0.822 | 0.895 |
+| Model | Oracle | Total queries | Queries/message | ASR | Evaded/attackable | Recall | F1 |
+|---|---|---:|---:|---:|---:|---:|---:|
+| multinomial | label | 476639 | 95.8 | 0.015 | 71/4834 | 0.957 | 0.960 |
+| multinomial | score | 497700 | 100.0 | 0.015 | 71/4834 | 0.957 | 0.960 |
+| bernoulli | label | 410252 | 82.4 | 0.044 | 187/4277 | 0.822 | 0.895 |
+| bernoulli | score | 497700 | 100.0 | 0.044 | 187/4277 | 0.822 | 0.895 |
 
-## D6 attack-aware retraining
+## D6 adaptive attack-aware retraining
 
-| Model | Rounds | Rows after | F1 |
-|---|---:|---:|---:|
-| multinomial | 2 | 59657 | 0.967 |
-| bernoulli | 2 | 59657 | 0.932 |
+| Model | Rounds | Rows after | Clean F1 | Adaptive A3 F1 | Adaptive ASR | Recall |
+|---|---:|---:|---:|---:|---:|---:|
+| multinomial | 2 | 59657 | 0.967 | 0.734 | 0.381 | 0.603 |
+| bernoulli | 2 | 59657 | 0.932 | 0.533 | 0.584 | 0.368 |
 
 ## S2 certified radius
 

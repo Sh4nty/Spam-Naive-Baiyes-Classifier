@@ -63,6 +63,24 @@ def test_attack_aware_retraining_adds_attacked_spam_each_round():
     assert result.labels == [0, 1, 1, 1, 1]
 
 
+def test_attack_aware_retraining_can_rebuild_adaptive_attack():
+    seen = []
+
+    def factory(model):
+        seen.append(model)
+        return lambda messages: [message + f" round{len(seen)}" for message in messages]
+
+    result = attack_aware_retrain(
+        ["ham", "spam"], [0, 1],
+        lambda documents, labels: (list(documents), list(labels)),
+        lambda messages: list(messages),
+        rounds=2,
+        attack_factory=factory,
+    )
+    assert len(seen) == 2
+    assert result.documents[-2:] == ["spam round2", "spam round1 round2"]
+
+
 def test_certified_radius_and_accuracy():
     class Model:
         weights_ = np.array([-2.0, 1.0])

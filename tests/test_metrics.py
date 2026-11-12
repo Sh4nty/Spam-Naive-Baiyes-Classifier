@@ -95,6 +95,16 @@ def test_bootstrap_perfect_classifier():
     assert ci["fpr"] == (0.0, 0.0)
 
 
+def test_bootstrap_rejects_invalid_resample_count():
+    with pytest.raises(ValueError):
+        bootstrap_ci([0, 1], [0, 1], n_resamples=0)
+
+
+def test_empty_metrics_are_rejected():
+    with pytest.raises(ValueError, match="empty"):
+        classification_metrics([], [])
+
+
 def test_bootstrap_chunking_gives_same_answer(monkeypatch):
     # Memory chunking on big test sets must not change the result.
     import spam_nb.metrics as metrics

@@ -37,6 +37,11 @@ def test_d1_drops_hidden_html_and_controls_but_keeps_visible_text():
     assert sanitize_documents([text]) == ["free budget"]
 
 
+def test_d1_keeps_visible_nested_content_after_hidden_sibling():
+    text = '<div><span style="display:none">hidden</span><span>visible</span></div>'
+    assert sanitize_text(text) == "visible"
+
+
 @pytest.mark.parametrize("fraction", [-0.1, 1.1])
 def test_homoglyph_substitution_rejects_invalid_fraction(fraction):
     with pytest.raises(ValueError):

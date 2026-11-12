@@ -23,7 +23,7 @@ from spam_nb.defences import (
     certified_radius,
 )
 from spam_nb.experiment import RESULTS, fit_victim, load_config, prepare_data
-from spam_nb.metrics import classification_metrics, evaluate
+from spam_nb.metrics import evaluate
 from spam_nb.naive_bayes import BernoulliNB, MultinomialNB
 
 
@@ -37,23 +37,32 @@ def main() -> int:
 
     for model_name, model_class in (("multinomial", MultinomialNB), ("bernoulli", BernoulliNB)):
         model = fit_victim(model_name, data, cfg)
-        query_count = [0]
+        for oracle, query_builder in (
+            ("label", lambda text: int(model.predict([text])[0])),
+            ("score", lambda text: float(model.margin([text])[0])),
+        ):
+            query_count = [0]
 
-        def query(text):
-            query_count[0] += 1
-            return float(model.margin([text])[0])
+            def query(text, builder=query_builder):
+                query_count[0] += 1
+                return builder(text)
 
-        a4 = active_good_word(candidate_words, query, budget=20, max_queries=100)
-        a4_result = evaluate(model, docs, labels, attack=a4, n_resamples=0)
-        output["a4"].append({
-            "model": model_name,
-            "budget": 20,
-            "max_queries": 100,
-            "queries": query_count[0],
-            "asr": a4_result["asr"],
-            "f1": a4_result["attacked"]["metrics"]["f1"],
-            "recall": a4_result["attacked"]["metrics"]["recall"],
-        })
+            a4 = active_good_word(candidate_words, query, budget=20, max_queries=100)
+            a4_result = evaluate(model, docs, labels, attack=a4, n_resamples=0)
+            n_spam = int(np.sum(labels == 1))
+            output["a4"].append({
+                "model": model_name,
+                "oracle": oracle,
+                "budget": 20,
+                "max_queries_per_message": 100,
+                "queries_total": query_count[0],
+                "queries_per_message": query_count[0] / max(1, n_spam),
+                "asr": a4_result["asr"],
+                "n_attackable": a4_result["n_attackable"],
+                "evaded": int(a4_result["asr"] * a4_result["n_attackable"]),
+                "f1": a4_result["attacked"]["metrics"]["f1"],
+                "recall": a4_result["attacked"]["metrics"]["recall"],
+            })
 
         def fit(candidate_docs, candidate_labels):
             return model_class(alpha=cfg["smoothing_alpha"]).fit(
@@ -63,14 +72,22 @@ def main() -> int:
         retrained = attack_aware_retrain(
             train.text.tolist(), train.label.tolist(), fit,
             whitebox_distinct(model, 5), rounds=2,
+            attack_factory=lambda current: whitebox_distinct(current, 5),
+        )
+        final_model = retrained.models[-1]
+        adaptive_attack = whitebox_distinct(final_model, 5)
+        final_clean = evaluate(final_model, docs, labels, n_resamples=0)
+        final_attacked = evaluate(
+            final_model, docs, labels, attack=adaptive_attack, n_resamples=0
         )
         output["d6"].append({
             "model": model_name,
             "rounds": len(retrained.models),
             "training_rows_after": len(retrained.documents),
-            "final_f1": classification_metrics(
-                labels, retrained.models[-1].predict(docs)
-            )["f1"],
+            "clean_f1": final_clean["clean"]["metrics"]["f1"],
+            "adaptive_attack_f1": final_attacked["attacked"]["metrics"]["f1"],
+            "adaptive_attack_asr": final_attacked["asr"],
+            "adaptive_attack_recall": final_attacked["attacked"]["metrics"]["recall"],
         })
 
         for tau in (0.25, 0.5, 1.0, 2.0):
@@ -119,20 +136,24 @@ def main() -> int:
         "",
         "## A4 active black-box attack",
         "",
-        "| Model | Queries | ASR | Recall | F1 |",
-        "|---|---:|---:|---:|---:|",
+        "| Model | Oracle | Total queries | Queries/message | ASR | Evaded/attackable | Recall | F1 |",
+        "|---|---|---:|---:|---:|---:|---:|---:|",
     ]
     for row in output["a4"]:
         lines.append(
-            f"| {row['model']} | {row['queries']} | {row['asr']:.3f} | "
-            f"{row['recall']:.3f} | {row['f1']:.3f} |"
+            f"| {row['model']} | {row['oracle']} | {row['queries_total']} | "
+            f"{row['queries_per_message']:.1f} | {row['asr']:.3f} | "
+            f"{row['evaded']}/{row['n_attackable']} | {row['recall']:.3f} | "
+            f"{row['f1']:.3f} |"
         )
-    lines += ["", "## D6 attack-aware retraining", "", "| Model | Rounds | Rows after | F1 |",
-              "|---|---:|---:|---:|"]
+    lines += ["", "## D6 adaptive attack-aware retraining", "",
+              "| Model | Rounds | Rows after | Clean F1 | Adaptive A3 F1 | Adaptive ASR | Recall |",
+              "|---|---:|---:|---:|---:|---:|---:|"]
     for row in output["d6"]:
         lines.append(
             f"| {row['model']} | {row['rounds']} | {row['training_rows_after']} | "
-            f"{row['final_f1']:.3f} |"
+            f"{row['clean_f1']:.3f} | {row['adaptive_attack_f1']:.3f} | "
+            f"{row['adaptive_attack_asr']:.3f} | {row['adaptive_attack_recall']:.3f} |"
         )
     lines += ["", "## S2 certified radius", "", "| Model | Tau | Median radius | R@0 | R@1 | R@5 |",
               "|---|---:|---:|---:|---:|---:|"]

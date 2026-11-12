@@ -57,7 +57,7 @@ class _VisibleText(html.parser.HTMLParser):
     def __init__(self):
         super().__init__(convert_charrefs=True)
         self.parts: list[str] = []
-        self.hidden_depth = 0
+        self._hidden_stack: list[bool] = []
 
     def handle_starttag(self, tag, attrs):
         attrs = dict(attrs)
@@ -67,24 +67,25 @@ class _VisibleText(html.parser.HTMLParser):
             or attrs.get("aria-hidden", "").lower() == "true"
             or "display:none" in attrs.get("style", "").replace(" ", "").lower()
         )
-        if hidden:
-            self.hidden_depth += 1
+        self._hidden_stack.append(hidden or any(self._hidden_stack))
 
     def handle_endtag(self, tag):
-        if self.hidden_depth and tag.lower() in {
-            "script", "style", "template", "noscript", "span", "div", "p"
-        }:
-            self.hidden_depth -= 1
+        if self._hidden_stack:
+            self._hidden_stack.pop()
 
     def handle_data(self, data):
-        if not self.hidden_depth:
+        if not any(self._hidden_stack):
             self.parts.append(data)
 
 
 def sanitize_text(text: str) -> str:
     """D1: normalize Unicode, remove hidden HTML and restore confusable text."""
     parser = _VisibleText()
-    parser.feed(unicodedata.normalize("NFKC", str(text)))
+    try:
+        parser.feed(unicodedata.normalize("NFKC", str(text)))
+        parser.close()
+    except Exception as error:
+        raise ValueError("Input could not be parsed as text.") from error
     visible = "".join(parser.parts)
     visible = "".join(_REVERSE_HOMOGLYPHS.get(char, char) for char in visible)
     visible = "".join(

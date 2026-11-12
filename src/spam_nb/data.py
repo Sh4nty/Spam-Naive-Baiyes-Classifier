@@ -91,6 +91,9 @@ def standardize(
     if len(df) < 2:
         raise ValueError("At least two emails are required.")
 
+    if df.empty:
+        raise ValueError("At least two emails are required.")
+
     # Stable sorting makes the split deterministic for tied timestamps.
     df = df.sort_values("timestamp", kind="mergesort")
     return df.reset_index(drop=True)
@@ -151,7 +154,7 @@ class _TextExtractor(HTMLParser):
         self.parts: list[str] = []
         self._skip = 0
 
-    def handle_starttag(self, tag, attrs):
+    def handle_starttag(self, tag, _attrs):
         if tag in ("script", "style"):
             self._skip += 1
 
@@ -266,6 +269,8 @@ def load_spamassassin(root: str | Path) -> pd.DataFrame:
     Adds columns: group (folder name) and file (file name).
     """
     root = Path(root)
+    if not root.is_dir():
+        raise FileNotFoundError(f"SpamAssassin directory not found: {root}")
     rows = []
     for folder in sorted(p for p in root.iterdir() if p.is_dir()):
         name = folder.name.lower()
@@ -331,6 +336,8 @@ def temporal_split(
         raise ValueError("At least two emails are required.")
 
     if stratify:
+        if set(df["label"].astype(int)) != {0, 1}:
+            raise ValueError("A stratified split requires both classes.")
         parts = [
             temporal_split(group, train_fraction, stratify=False)
             for _, group in df.groupby("label", sort=True)
@@ -411,6 +418,12 @@ def near_duplicate_mask(
     """
     if not 0.0 < threshold <= 1.0:
         raise ValueError("threshold must be in (0, 1].")
+    if k < 1:
+        raise ValueError("k must be at least 1.")
+    if num_perm < 1:
+        raise ValueError("num_perm must be positive.")
+    if bands is not None and bands < 1:
+        raise ValueError("bands must be positive.")
     bands = bands or _choose_bands(threshold, num_perm)
     if num_perm % bands:
         raise ValueError("num_perm must be divisible by bands.")

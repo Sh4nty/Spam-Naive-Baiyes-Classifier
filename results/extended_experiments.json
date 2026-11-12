@@ -2,19 +2,53 @@
   "a4": [
     {
       "model": "multinomial",
+      "oracle": "label",
       "budget": 20,
-      "max_queries": 100,
-      "queries": 497700,
+      "max_queries_per_message": 100,
+      "queries_total": 476639,
+      "queries_per_message": 95.76833433795458,
       "asr": 0.014687629292511377,
+      "n_attackable": 4834,
+      "evaded": 71,
+      "f1": 0.9595084609186141,
+      "recall": 0.9570022101667671
+    },
+    {
+      "model": "multinomial",
+      "oracle": "score",
+      "budget": 20,
+      "max_queries_per_message": 100,
+      "queries_total": 497700,
+      "queries_per_message": 100.0,
+      "asr": 0.014687629292511377,
+      "n_attackable": 4834,
+      "evaded": 71,
       "f1": 0.9595084609186141,
       "recall": 0.9570022101667671
     },
     {
       "model": "bernoulli",
+      "oracle": "label",
       "budget": 20,
-      "max_queries": 100,
-      "queries": 497700,
+      "max_queries_per_message": 100,
+      "queries_total": 410252,
+      "queries_per_message": 82.42957604982921,
       "asr": 0.04372223521159691,
+      "n_attackable": 4277,
+      "evaded": 187,
+      "f1": 0.895163055373167,
+      "recall": 0.8217801888687964
+    },
+    {
+      "model": "bernoulli",
+      "oracle": "score",
+      "budget": 20,
+      "max_queries_per_message": 100,
+      "queries_total": 497700,
+      "queries_per_message": 100.0,
+      "asr": 0.04372223521159691,
+      "n_attackable": 4277,
+      "evaded": 187,
       "f1": 0.895163055373167,
       "recall": 0.8217801888687964
     }
@@ -24,13 +58,19 @@
       "model": "multinomial",
       "rounds": 2,
       "training_rows_after": 59657,
-      "final_f1": 0.9667131752043054
+      "clean_f1": 0.9667131752043054,
+      "adaptive_attack_f1": 0.733602052033712,
+      "adaptive_attack_asr": 0.38082474226804125,
+      "adaptive_attack_recall": 0.6033755274261603
     },
     {
       "model": "bernoulli",
       "rounds": 2,
       "training_rows_after": 59657,
-      "final_f1": 0.9324152542372881
+      "clean_f1": 0.9324152542372881,
+      "adaptive_attack_f1": 0.5330422125181951,
+      "adaptive_attack_asr": 0.5839581913201545,
+      "adaptive_attack_recall": 0.36789230460116534
     }
   ],
   "s2": [

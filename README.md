@@ -4,13 +4,18 @@ From-scratch Multinomial and Bernoulli Naive Bayes (Manning et al., Ch. 13)
 in NumPy/Pandas, stress-tested with good-word, encoding, LLM-camouflage and
 poisoning attacks. scikit-learn is never imported.
 
-## Setup
+## Setup (reproducible environment)
 
 ```
-pip install -r requirements.txt
-python -m pytest -q              # all tests should pass
+conda activate deeplearning
+python -m pip install -r requirements.txt
+python -m pytest -q              # 163 tests should pass
 python scripts/fetch_data.py     # Enron-Spam + SpamAssassin into data/raw/ (gitignored)
 ```
+
+The project is intentionally dependency-light and implements Naive Bayes from
+scratch; scikit-learn is not used. Run `where python` after activation to
+confirm that the selected interpreter belongs to `deeplearning`.
 
 ## Reproduce
 
@@ -37,6 +42,13 @@ Fresh-100 and Reuters-21578 are not included in this repository snapshot; the
 data provenance and requirements for adding them are documented in
 [`docs/dataset_datasheet.md`](docs/dataset_datasheet.md).
 
+The complete interpretation of the generated evidence is in
+[`docs/experimental_report.md`](docs/experimental_report.md), while the
+methodology and threat-model contract are in
+[`docs/methodology.md`](docs/methodology.md). These documents deliberately
+distinguish in-domain performance, external-domain shift, attack success, and
+certified robustness; no single aggregate score hides those trade-offs.
+
 ## Code map (`src/spam_nb/`)
 
 | Module | Contents |
@@ -50,7 +62,7 @@ data provenance and requirements for adding them are documented in
 | `llm_camouflage.py` | A7 defanging, prompts, rule-based fallback, evasion attribution |
 | `encoding.py` | A5 hidden HTML, A6 Unicode obfuscation, D1 input sanitisation |
 | `poisoning.py` | A8 ham-vocabulary poison generation and training-data injection |
-| `defences.py` | D2 term-frequency caps, D3 weight clipping and certified radius, D4 segment scoring, D5 RONI-lite, D6 attack-aware retraining |
+| `defences.py` | D2 term-frequency caps, D3 weight clipping and token-edit certified radius, D4 segment scoring, D5 RONI-lite, D6 adaptive attack-aware retraining |
 | `experiment.py` | Shared config, prepared data and victim fitting for the scripts |
 
 Optional binary corpora can be evaluated without changing the victim training
@@ -90,3 +102,19 @@ res["attacked"]["metrics"], res["asr"]
 - **Ethics.** Attacks run offline against our own models only. URLs, e-mail
   addresses and phone numbers in A7 material are replaced by placeholders.
   Never feed corpus messages into a live mail system.
+
+## Quality and reproducibility contract
+
+- Every public function validates dimensions, labels, budgets, rates, and
+  numerical parameters at its boundary.
+- The temporal split is deterministic, stable for tied timestamps, class-aware,
+  and removes near duplicates before evaluation.
+- Bootstrap intervals use a documented seed and vectorised, chunked resampling.
+- Prepared-data caches are validated and written atomically, so an interrupted
+  run cannot silently create a partial dataset.
+- Experiments use only the training split for fitting and attack-side data that
+  is explicitly disjoint from victim training. The test set is not used for
+  tuning or RONI acceptance decisions.
+- Re-run tests and experiments after any dependency or data change; generated
+  Markdown/JSON under `results/` is the audit trail, not a substitute for the
+  raw corpora and configuration.

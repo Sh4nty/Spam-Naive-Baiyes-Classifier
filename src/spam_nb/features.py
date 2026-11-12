@@ -22,7 +22,14 @@ def _table(doc_freq: np.ndarray, class_counts: np.ndarray):
     """doc_freq: shape (2, V), docs per class containing each term
     (row 0 ham, row 1 spam). class_counts: (n_ham, n_spam)."""
     df = np.asarray(doc_freq, dtype=np.float64)
-    n_ham, n_spam = (float(c) for c in class_counts)
+    if df.ndim != 2 or df.shape[0] != 2:
+        raise ValueError("doc_freq must have shape (2, n_terms).")
+    counts = np.asarray(class_counts, dtype=np.float64)
+    if counts.shape != (2,) or np.any(counts < 0):
+        raise ValueError("class_counts must contain two non-negative counts.")
+    if np.any(df < 0) or np.any(df > counts[:, None]):
+        raise ValueError("doc_freq must be between zero and class_counts.")
+    n_ham, n_spam = (float(c) for c in counts)
     n11, n10 = df[1], df[0]
     n01, n00 = n_spam - n11, n_ham - n10
     return n11, n10, n01, n00
@@ -65,8 +72,10 @@ def chi_square(doc_freq, class_counts) -> np.ndarray:
 
 def select_top_k(scores: np.ndarray, k: int) -> np.ndarray:
     """Indices of the k highest scores, ties broken by index (stable)."""
-    if k <= 0:
+    if isinstance(k, bool) or int(k) != k or k <= 0:
         raise ValueError("k must be positive.")
+    if k > len(scores):
+        raise ValueError("k cannot exceed the number of scored terms.")
     order = np.argsort(-np.asarray(scores), kind="stable")
     return np.sort(order[:k])
 
