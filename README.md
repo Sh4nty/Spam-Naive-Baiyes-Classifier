@@ -49,6 +49,21 @@ methodology and threat-model contract are in
 distinguish in-domain performance, external-domain shift, attack success, and
 certified robustness; no single aggregate score hides those trade-offs.
 
+## Final presentation
+
+The submitted deck is [`Where Naive Bayes Breaks - Final - High Budget.pptx`](Where%20Naive%20Bayes%20Breaks%20-%20Final%20-%20High%20Budget.pptx).
+To rebuild it after installing `python-pptx`, run:
+
+```text
+python scripts/build_presentation.py
+```
+
+The deck summarizes the problem statement, IR pipeline, baseline, attack and
+defense matrix, evaluation results, limitations, future scope, references,
+dataset provenance, and the commands needed to reproduce the experiments. It
+also uses native PowerPoint fade transitions and a dark, data-led visual system
+organized using answer-first Minto Pyramid headlines.
+
 ## Code map (`src/spam_nb/`)
 
 | Module | Contents |
